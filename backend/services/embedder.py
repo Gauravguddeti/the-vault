@@ -34,6 +34,8 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
         return await _embed_openai(texts)
     elif provider == "fastembed":
         return await _embed_fastembed(texts)
+    elif provider == "mistral":
+        return await _embed_mistral(texts)
     else:
         raise ValueError(f"Unknown EMBEDDING_PROVIDER: {provider}")
 
@@ -86,3 +88,14 @@ async def _embed_fastembed(texts: List[str]) -> List[List[float]]:
         return [list(e) for e in _fastembed_model.embed(texts)]
         
     return await loop.run_in_executor(None, generate_embeddings)
+
+
+async def _embed_mistral(texts: List[str]) -> List[List[float]]:
+    """Embed using Mistral API (mistral-embed)."""
+    from mistralai import Mistral
+    client = Mistral(api_key=settings.MISTRAL_API_KEY)
+    response = await client.embeddings.create_async(
+        model=settings.EMBEDDING_MODEL,
+        inputs=texts,
+    )
+    return [item.embedding for item in response.data]

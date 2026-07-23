@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_index  INT NOT NULL,
     text         TEXT NOT NULL,
     token_count  INT,
-    embedding    vector(384),            -- matches BAAI/bge-small-en-v1.5 (fastembed)
+    embedding    vector(1024),           -- matches BAAI/bge-small-en-v1.5 (fastembed)
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

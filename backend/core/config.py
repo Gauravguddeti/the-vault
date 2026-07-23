@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     MISTRAL_API_KEY: str = ""
 
     # Embedding
-    EMBEDDING_PROVIDER: str = "fastembed"
+    EMBEDDING_PROVIDER: str = "mistral"
     OLLAMA_ENDPOINT: str = "http://localhost:11434"
     OPENAI_API_KEY: str = ""
-    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
-    EMBEDDING_DIM: int = 384
+    EMBEDDING_MODEL: str = "mistral-embed"
+    EMBEDDING_DIM: int = 1024
 
     # Query tuning
     MIN_SIMILARITY_SCORE: float = 0.72
