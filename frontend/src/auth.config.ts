@@ -25,7 +25,7 @@ export const authConfig = {
     async session({ session, token }) {
       if (token.userId) {
         session.user.id = token.userId as string;
-        session.accessToken = token.accessToken;
+        session.accessToken = token.accessToken as string;
       }
       return session;
     },
