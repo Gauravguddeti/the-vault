@@ -20,8 +20,9 @@ class Settings(BaseSettings):
     NEXTAUTH_SECRET: str = ""
     NEXTAUTH_URL: str = "http://localhost:3000"
 
-    # LLM
-    MISTRAL_MODEL: str = "mistral-small-latest"
+    # Groq
+    GROQ_API_KEY: str
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
     # OCR
     OCR_PROVIDER: str = "mistral"          # mistral | tesseract
