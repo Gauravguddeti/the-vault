@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
+import { authConfig } from "./auth.config";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -9,6 +10,7 @@ const pool = new Pool({
 });
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
   providers: [
     Credentials({
       name: "credentials",
@@ -36,20 +38,4 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
-  session: { strategy: "jwt" },
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) token.userId = user.id;
-      return token;
-    },
-    async session({ session, token }) {
-      if (token.userId) session.user.id = token.userId as string;
-      return session;
-    },
-  },
-  pages: {
-    signIn: "/login",
-    error: "/login",
-  },
-  secret: process.env.NEXTAUTH_SECRET,
 });
