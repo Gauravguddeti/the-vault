@@ -2,7 +2,7 @@
 
 > Privacy-first personal document vault with semantic search, OCR, and AI-powered Q&A.
 
-**Final-year project.** Research contribution: privacy-preserving semantic search in a multi-tenant serverless architecture using Postgres Row-Level Security.
+Research contribution: privacy-preserving semantic search in a multi-tenant serverless architecture using Postgres Row-Level Security.
 
 ---
 
