@@ -15,7 +15,7 @@ import re
 from typing import Any, Dict, List, Optional, TypedDict
 
 import asyncpg
-from groq import Groq
+
 from langgraph.graph import END, StateGraph
 
 from core.config import settings
@@ -257,10 +257,11 @@ async def answer_node(state: VaultState) -> VaultState:
         "content": f"Context:\n{context}\n\nQuestion: {state['question']}",
     })
 
-    # ── Call Groq ─────────────────────────────────────────────────────
-    client = Groq(api_key=settings.GROQ_API_KEY)
-    response = client.chat.completions.create(
-        model=settings.GROQ_MODEL,
+    # ── Call Mistral ─────────────────────────────────────────────────────
+    from mistralai import Mistral
+    client = Mistral(api_key=settings.MISTRAL_API_KEY)
+    response = client.chat.complete(
+        model=settings.MISTRAL_MODEL,
         messages=messages,
         temperature=0.0,
         max_tokens=1024,
