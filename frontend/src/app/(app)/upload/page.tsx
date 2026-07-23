@@ -125,7 +125,7 @@ export default function UploadPage() {
           </div>
           <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
             <div className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${progress}%`, background: "linear-gradient(90deg, #4f46e5, #7c3aed)" }} />
+              style={{ width: `${progress}%`, background: "var(--accent)" }} />
           </div>
         </div>
       )}

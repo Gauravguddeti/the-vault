@@ -127,7 +127,7 @@ export default function ChatPage() {
         {!activeId ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-6 animate-fade-in">
             <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-6"
-              style={{ background: "linear-gradient(135deg,rgba(79,70,229,0.2),rgba(124,58,237,0.2))", border: "1px solid rgba(99,102,241,0.3)" }}>
+              style={{ background: "rgba(194,1,20,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
@@ -146,7 +146,7 @@ export default function ChatPage() {
                 <div key={msg.id + i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} animate-slide-up`}>
                   {msg.role === "assistant" && (
                     <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mr-3 mt-1"
-                      style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)", boxShadow: "0 0 12px rgba(99,102,241,0.3)" }}>
+                      style={{ background: "var(--accent)", boxShadow: "0 4px 0 #8a000e" }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                       </svg>
@@ -155,7 +155,7 @@ export default function ChatPage() {
                   <div className="max-w-[75%]">
                     <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap`}
                       style={msg.role === "user"
-                        ? { background: "linear-gradient(135deg,#4f46e5,#7c3aed)", color: "white", borderBottomRightRadius: 4 }
+                        ? { background: "var(--accent)", color: "white", borderBottomRightRadius: 4 }
                         : { background: "var(--surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderBottomLeftRadius: 4 }}>
                       {msg.content}
                     </div>
@@ -180,7 +180,7 @@ export default function ChatPage() {
               {loading && (
                 <div className="flex justify-start animate-slide-up">
                   <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mr-3"
-                    style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)" }}>
+                    style={{ background: "var(--accent)" }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                     </svg>

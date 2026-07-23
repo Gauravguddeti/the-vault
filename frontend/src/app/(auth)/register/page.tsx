@@ -35,14 +35,14 @@ export default function RegisterPage() {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4"
-      style={{ background: "linear-gradient(135deg, #0f0f1a 0%, #1a0e2e 100%)" }}>
+      style={{ background: "var(--surface-0)" }}>
       <div className="absolute inset-0 pointer-events-none"
-        style={{ background: "radial-gradient(ellipse 60% 40% at 50% 10%, rgba(99,102,241,0.18), transparent)" }} />
+        style={{ background: "transparent" }} />
 
       <div className="relative w-full max-w-md animate-slide-up">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
-            style={{ background: "linear-gradient(135deg, #4f46e5, #7c3aed)", boxShadow: "0 0 40px rgba(99,102,241,0.4)" }}>
+            style={{ background: "var(--accent)", boxShadow: "0 4px 0 #8a000e" }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
             </svg>

@@ -3,17 +3,17 @@
 @import "tailwindcss";
 
 :root {
-  --surface-0: #0f0f1a;
-  --surface-1: #16162a;
-  --surface-2: #1e1e35;
-  --surface-3: #26263f;
-  --border: rgba(99, 102, 241, 0.15);
-  --border-hover: rgba(99, 102, 241, 0.35);
-  --accent: #6366f1;
-  --accent-light: #818cf8;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --surface-0: #0C120C;
+  --surface-1: #1a201a;
+  --surface-2: #242924;
+  --surface-3: #323832;
+  --border: #6D7275;
+  --border-hover: #C7D6D5;
+  --accent: #C20114;
+  --accent-light: #e62335;
+  --text-primary: #ECEBF3;
+  --text-secondary: #C7D6D5;
+  --text-muted: #6D7275;
 }
 
 * { box-sizing: border-box; }
@@ -33,46 +33,46 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
-/* Glass card */
+/* Glass card -> Solid panels */
 .glass {
-  background: rgba(30, 30, 53, 0.7);
-  backdrop-filter: blur(16px);
+  background: var(--surface-1);
   border: 1px solid var(--border);
 }
 
 .glass-hover:hover {
-  border-color: var(--border-hover);
-  background: rgba(38, 38, 63, 0.8);
+  border-color: var(--accent);
+  background: var(--surface-2);
 }
 
-/* Gradient text */
+/* Bold accent text */
 .gradient-text {
-  background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent);
 }
 
-/* Glow button */
+/* Bold button */
 .btn-primary {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  color: white;
+  background: var(--accent);
+  color: #ECEBF3;
   border: none;
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 0.625rem 1.25rem;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.9rem;
   cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 0 #8a000e;
 }
 
 .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 0 30px rgba(99, 102, 241, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #8a000e;
+  background: #d60b1e;
 }
 
-.btn-primary:active { transform: translateY(0); }
+.btn-primary:active { 
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #8a000e;
+}
 
 .btn-ghost {
   background: transparent;
