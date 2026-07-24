@@ -264,7 +264,7 @@ export default function ChatPage() {
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>{s.message_count} messages</p>
               </div>
               <button onClick={e => deleteSession(s.id, e)}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded" style={{ color: "var(--text-muted)" }}
+                className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 rounded" style={{ color: "var(--text-muted)" }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "#f87171"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

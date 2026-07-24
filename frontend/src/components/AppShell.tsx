@@ -283,8 +283,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-y-auto md:pt-0 pt-14 relative">
         {children}
 
-        {/* Mobile scanner FAB — bottom-right, thumb-reachable */}
-        <button
+        {/* Mobile scanner FAB — bottom-right, thumb-reachable. Hidden on chat to avoid overlapping send button */}
+        {!pathname.startsWith("/chat") && (
+          <button
           id="mobile-scan-fab"
           onClick={openScanner}
           className="md:hidden fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-transform active:scale-95"
@@ -299,6 +300,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <circle cx="12" cy="13" r="4" />
           </svg>
         </button>
+        )}
       </main>
 
       {/* Hidden camera input */}
