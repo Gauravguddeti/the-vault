@@ -4,8 +4,9 @@ Runs: OCR → field extraction → chunking → embedding → status update.
 Called as a FastAPI BackgroundTask after upload.
 Also called by the cron job for retry/reprocessing.
 """
+import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import asyncpg
 
@@ -78,20 +79,43 @@ async def run_document_pipeline(
 
             fields = extract_fields(raw_text)
             if fields:
+                # Parse date string → datetime.date (asyncpg requires a real date object)
+                raw_date = fields.get("date")
+                txn_date = None
+                if raw_date:
+                    try:
+                        txn_date = datetime.strptime(str(raw_date).strip(), "%Y-%m-%d").date()
+                    except ValueError:
+                        try:
+                            # Try other common formats
+                            for fmt in ("%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%B %d, %Y", "%b %d, %Y"):
+                                try:
+                                    txn_date = datetime.strptime(str(raw_date).strip(), fmt).date()
+                                    break
+                                except ValueError:
+                                    continue
+                        except Exception:
+                            pass
+                    if txn_date is None:
+                        logger.warning(f"[{doc_id}] Could not parse date: {raw_date!r} — storing NULL")
+
+                raw_json = fields.get("raw_json", {})
+                raw_json_str = json.dumps(raw_json) if isinstance(raw_json, dict) else json.dumps({})
+
                 await conn.execute(
                     """
                     INSERT INTO extracted_fields
                         (document_id, user_id, amount, currency, txn_date, vendor, category, raw_json)
-                    VALUES ($1::uuid, $2::uuid, $3, $4, $5::date, $6, $7, $8::jsonb)
+                    VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8::jsonb)
                     ON CONFLICT DO NOTHING
                     """,
                     doc_id, user_id,
                     fields.get("amount"),
                     fields.get("currency"),
-                    fields.get("date"),
+                    txn_date,                  # datetime.date or None
                     fields.get("vendor"),
                     fields.get("category"),
-                    str(fields.get("raw_json", {})).replace("'", '"'),
+                    raw_json_str,
                 )
                 await _log_event(conn, doc_id, "extraction_success")
 
