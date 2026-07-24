@@ -9,6 +9,7 @@ interface ConfirmUploadModalProps {
   error: string | null;
   duplicateWarning?: string | null;
   onConfirm: (fields: any) => void;
+  onAutoConfirm: () => void;
   onCancel: () => void;
   isOpen: boolean;
 }
@@ -20,6 +21,7 @@ export default function ConfirmUploadModal({
   error,
   duplicateWarning,
   onConfirm,
+  onAutoConfirm,
   onCancel,
   isOpen,
 }: ConfirmUploadModalProps) {
@@ -30,6 +32,12 @@ export default function ConfirmUploadModal({
     vendor: "",
     amount: "",
   });
+  const [autoConfirmRequested, setAutoConfirmRequested] = useState(false);
+
+  // Reset local state when modal opens/closes
+  useEffect(() => {
+    if (!isOpen) setAutoConfirmRequested(false);
+  }, [isOpen]);
 
   // Pre-fill fields when document is ready for confirmation
   useEffect(() => {
@@ -54,15 +62,8 @@ export default function ConfirmUploadModal({
   if (!isOpen) return null;
 
   const handleAutoConfirm = () => {
-    // Works during both analyzing phase (doc=null) and awaiting_confirmation phase (doc=object).
-    // Backend already has the file content — passing empty/partial fields just skips the manual review.
-    onConfirm({
-      title: document?.original_name || "",
-      category: document?.category || "",
-      date: document?.txn_date || "",
-      vendor: document?.vendor || "",
-      amount: document?.amount ? parseFloat(document.amount) : null,
-    });
+    // This tells the backend hook to automatically submit as soon as the real document fields are ready.
+    onAutoConfirm();
   };
 
   return (
@@ -94,10 +95,19 @@ export default function ConfirmUploadModal({
             {/* Skip waiting — use blank fields and let backend fill them in */}
             {(status === "analyzing") && (
               <button
-                onClick={handleAutoConfirm}
+                onClick={() => {
+                  setAutoConfirmRequested(true);
+                  handleAutoConfirm();
+                }}
+                disabled={autoConfirmRequested}
                 className="mt-2 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95"
-                style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", color: "#818cf8" }}>
-                Do it yourself! →
+                style={{ 
+                  background: autoConfirmRequested ? "rgba(34,197,94,0.15)" : "rgba(99,102,241,0.15)", 
+                  border: `1px solid ${autoConfirmRequested ? "rgba(34,197,94,0.3)" : "rgba(99,102,241,0.3)"}`, 
+                  color: autoConfirmRequested ? "#4ade80" : "#818cf8",
+                  opacity: autoConfirmRequested ? 0.8 : 1
+                }}>
+                {autoConfirmRequested ? "Will auto-confirm ✓" : "Do it yourself! →"}
               </button>
             )}
           </div>

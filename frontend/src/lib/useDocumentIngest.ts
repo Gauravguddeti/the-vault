@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { uploadDocument, getDocument, confirmDocument } from "./api";
 
 export type IngestStatus = "idle" | "uploading" | "analyzing" | "awaiting_confirmation" | "confirming" | "ready" | "error";
@@ -9,12 +9,14 @@ export function useDocumentIngest(token: string) {
   const [error, setError] = useState<string | null>(null);
   const [document, setDocument] = useState<any>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  const autoConfirmRef = useRef(false);
 
   const startIngest = useCallback(async (file: File) => {
     setStatus("uploading");
     setProgress(0);
     setError(null);
     setDocument(null);
+    autoConfirmRef.current = false;
 
     try {
       // 1. Upload with require_confirmation=true
@@ -30,7 +32,19 @@ export function useDocumentIngest(token: string) {
           if (doc.status === "awaiting_confirmation") {
             clearInterval(pollInterval);
             setDocument(doc);
-            setStatus("awaiting_confirmation");
+            
+            if (autoConfirmRef.current) {
+              // User clicked Do It Yourself during analysis — auto-confirm now with extracted fields
+              confirmUpload({
+                title: doc.original_name || "",
+                category: doc.category || "",
+                date: doc.txn_date || "",
+                vendor: doc.vendor || "",
+                amount: doc.amount ? parseFloat(doc.amount) : null,
+              }, doc.id);
+            } else {
+              setStatus("awaiting_confirmation");
+            }
           } else if (doc.status === "failed") {
             clearInterval(pollInterval);
             setError(doc.error_message || "Analysis failed");
@@ -54,19 +68,20 @@ export function useDocumentIngest(token: string) {
     }
   }, [token]);
 
-  const confirmUpload = useCallback(async (fields: any) => {
-    if (!document?.id) return;
+  const confirmUpload = useCallback(async (fields: any, explicitDocId?: string) => {
+    const targetId = explicitDocId || document?.id;
+    if (!targetId) return;
     setStatus("confirming");
     setError(null);
 
     try {
-      const res = await confirmDocument(document.id, fields, token) as any;
+      const res = await confirmDocument(targetId, fields, token) as any;
       if (res.duplicate_warning) setDuplicateWarning(res.duplicate_warning);
       
       // Poll until ready
       const pollInterval = setInterval(async () => {
         try {
-          const doc = await getDocument(document.id, token) as any;
+          const doc = await getDocument(targetId, token) as any;
           if (doc.status === "ready") {
             clearInterval(pollInterval);
             setDocument(doc);
@@ -95,7 +110,21 @@ export function useDocumentIngest(token: string) {
     setError(null);
     setDocument(null);
     setDuplicateWarning(null);
+    autoConfirmRef.current = false;
   }, []);
+
+  const triggerAutoConfirm = useCallback(() => {
+    autoConfirmRef.current = true;
+    if (status === "awaiting_confirmation" && document) {
+      confirmUpload({
+        title: document.original_name || "",
+        category: document.category || "",
+        date: document.txn_date || "",
+        vendor: document.vendor || "",
+        amount: document.amount ? parseFloat(document.amount) : null,
+      }, document.id);
+    }
+  }, [status, document, confirmUpload]);
 
   return {
     status,
@@ -105,6 +134,7 @@ export function useDocumentIngest(token: string) {
     duplicateWarning,
     startIngest,
     confirmUpload,
+    triggerAutoConfirm,
     reset,
   };
 }
