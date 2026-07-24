@@ -354,7 +354,7 @@ def build_vault_agent():
     graph.add_node("classify_query", classify_query_node)
     graph.add_node("retrieve", retrieve_node)
     graph.add_node("sql_aggregate", sql_aggregate_node)
-    graph.add_node("answer", answer_node)
+    graph.add_node("generate_answer", answer_node)
     graph.add_node("save_memory", save_memory_node)
 
     graph.set_entry_point("load_memory")
@@ -363,9 +363,9 @@ def build_vault_agent():
         "retrieve": "retrieve",
         "sql_aggregate": "sql_aggregate",
     })
-    graph.add_edge("retrieve", "answer")
-    graph.add_edge("sql_aggregate", "answer")
-    graph.add_edge("answer", "save_memory")
+    graph.add_edge("retrieve", "generate_answer")
+    graph.add_edge("sql_aggregate", "generate_answer")
+    graph.add_edge("generate_answer", "save_memory")
     graph.add_edge("save_memory", END)
 
     return graph.compile()
