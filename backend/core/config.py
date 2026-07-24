@@ -48,16 +48,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
 
     # CORS
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]
-
-    @field_validator("ALLOWED_ORIGINS", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: str | List[str]) -> List[str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",") if i.strip()]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
 
     # Backend
     BACKEND_URL: str = "http://localhost:8000"
