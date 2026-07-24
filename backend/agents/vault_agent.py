@@ -56,12 +56,12 @@ Classify the user's latest message into one of these intents:
 - OUT_OF_SCOPE: requests completely unrelated to documents/expenses.
 
 Return ONLY a valid JSON object matching this schema:
-{
+{{
   "intent": "CHAT" | "DOCUMENT" | "AGGREGATE" | "OUT_OF_SCOPE",
   "category": "medical" | "food" | "transport" | "utilities" | "electronics" | "clothing" | "repairs" | "insurance" | "taxes" | "rent" | "other" | null,
   "date_from": "YYYY-MM-DD" | null,
   "date_to": "YYYY-MM-DD" | null
-}
+}}
 
 Rules:
 - For AGGREGATE, extract the requested category if specified (map it to one of the strict categories above, e.g. "laptop repairs" -> "electronics", "dentist" -> "medical").
