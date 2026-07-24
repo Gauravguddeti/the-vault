@@ -26,7 +26,7 @@ export function useDocumentIngest(token: string) {
       // 2. Poll until status is awaiting_confirmation or error
       const pollInterval = setInterval(async () => {
         try {
-          const doc = await getDocument(docId, token);
+          const doc = await getDocument(docId, token) as any;
           if (doc.status === "awaiting_confirmation") {
             clearInterval(pollInterval);
             setDocument(doc);
@@ -66,7 +66,7 @@ export function useDocumentIngest(token: string) {
       // Poll until ready
       const pollInterval = setInterval(async () => {
         try {
-          const doc = await getDocument(document.id, token);
+          const doc = await getDocument(document.id, token) as any;
           if (doc.status === "ready") {
             clearInterval(pollInterval);
             setDocument(doc);

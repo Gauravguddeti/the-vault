@@ -175,30 +175,30 @@ async def _run_chunking_internal(conn: asyncpg.Connection, doc_id: str, user_id:
         logger.warning(f"[{doc_id}] No raw_text found for chunking")
     else:
         chunks = chunk_text(raw_text)
-            if chunks:
-                embeddings = await embed_chunks([c["text"] for c in chunks])
+        if chunks:
+            embeddings = await embed_chunks([c["text"] for c in chunks])
 
-                # Delete any existing chunks for this document (re-processing case)
+            # Delete any existing chunks for this document (re-processing case)
+            await conn.execute(
+                "DELETE FROM chunks WHERE document_id=$1::uuid", doc_id
+            )
+
+            # Batch insert chunks
+            for chunk, embedding in zip(chunks, embeddings):
                 await conn.execute(
-                    "DELETE FROM chunks WHERE document_id=$1::uuid", doc_id
+                    """
+                    INSERT INTO chunks
+                        (document_id, user_id, chunk_index, text, token_count, embedding)
+                    VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::vector)
+                    """,
+                    doc_id, user_id,
+                    chunk["chunk_index"],
+                    chunk["text"],
+                    chunk["token_count"],
+                    str(embedding),
                 )
 
-                # Batch insert chunks
-                for chunk, embedding in zip(chunks, embeddings):
-                    await conn.execute(
-                        """
-                        INSERT INTO chunks
-                            (document_id, user_id, chunk_index, text, token_count, embedding)
-                        VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::vector)
-                        """,
-                        doc_id, user_id,
-                        chunk["chunk_index"],
-                        chunk["text"],
-                        chunk["token_count"],
-                        str(embedding),
-                    )
-
-                await _log_event(conn, doc_id, "embedding_success", f"{len(chunks)} chunks")
+            await _log_event(conn, doc_id, "embedding_success", f"{len(chunks)} chunks")
 
     # ── Step 4: Mark ready ────────────────────────────────────
     await _update_status(conn, doc_id, "ready")
