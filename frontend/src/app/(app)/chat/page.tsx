@@ -509,6 +509,7 @@ export default function ChatPage() {
         error={ingest.error}
         duplicateWarning={ingest.duplicateWarning}
         onConfirm={ingest.confirmUpload}
+        onAutoConfirm={ingest.triggerAutoConfirm}
         onCancel={() => {
           setModalOpen(false);
           if (ingest.status !== "ready") {
