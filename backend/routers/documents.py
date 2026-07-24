@@ -46,6 +46,7 @@ class RenameRequest(BaseModel):
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_document(
     background_tasks: BackgroundTasks,
+    require_confirmation: bool = False,
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_with_rls),
@@ -94,6 +95,7 @@ async def upload_document(
         file_path,
         file.content_type,
         user["user_id"],
+        require_confirmation,
     )
 
     return {
@@ -102,6 +104,80 @@ async def upload_document(
         "status": "pending",
         "message": "Upload received. Processing started.",
     }
+
+
+# ── Confirm ────────────────────────────────────────────────────────────
+
+class ConfirmFields(BaseModel):
+    category: Optional[str] = None
+    vendor: Optional[str] = None
+    date: Optional[str] = None
+    amount: Optional[float] = None
+    title: Optional[str] = None
+
+@router.post("/{doc_id}/confirm")
+async def confirm_document(
+    doc_id: str,
+    fields: ConfirmFields,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_db_with_rls),
+):
+    # Verify document exists and belongs to user
+    doc = await conn.fetchrow("SELECT id FROM documents WHERE id = $1::uuid", doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # If title is provided, update original_name
+    if fields.title:
+        await conn.execute("UPDATE documents SET original_name = $1 WHERE id = $2::uuid", fields.title, doc_id)
+
+    # Parse date
+    txn_date = None
+    if fields.date:
+        from datetime import datetime
+        try:
+            txn_date = datetime.strptime(fields.date, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    # ── Duplicate detection ─────────────────────────────────────────
+    duplicate_warning = None
+    if fields.vendor and txn_date and fields.amount:
+        dup = await conn.fetchrow(
+            """
+            SELECT d.id::text, d.original_name
+            FROM documents d
+            JOIN extracted_fields ef ON ef.document_id = d.id
+            WHERE d.status = 'ready'
+              AND ef.vendor ILIKE $1
+              AND ef.txn_date = $2
+              AND ef.amount = $3
+              AND d.id != $4::uuid
+            LIMIT 1
+            """,
+            f"%{fields.vendor}%", txn_date, fields.amount, doc_id
+        )
+        if dup:
+            duplicate_warning = f"Possible duplicate of '{dup['original_name']}' (same vendor, amount, and date)."
+
+    # Update extracted_fields
+    await conn.execute(
+        """
+        UPDATE extracted_fields 
+        SET category = $1, vendor = $2, txn_date = $3, amount = $4
+        WHERE document_id = $5::uuid
+        """,
+        fields.category, fields.vendor, txn_date, fields.amount, doc_id
+    )
+
+    # Set status to embedding and trigger the rest of the pipeline
+    await conn.execute("UPDATE documents SET status = 'embedding' WHERE id = $1::uuid", doc_id)
+    
+    from services.pipeline import run_chunking_pipeline
+    background_tasks.add_task(run_chunking_pipeline, doc_id, user["user_id"])
+
+    return {"message": "Confirmed and processing resumed.", "duplicate_warning": duplicate_warning}
 
 
 # ── List ───────────────────────────────────────────────────────────────

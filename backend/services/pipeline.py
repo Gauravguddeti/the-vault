@@ -49,6 +49,7 @@ async def run_document_pipeline(
     file_path: str,
     mime_type: str,
     user_id: str,
+    require_confirmation: bool = False,
 ):
     """
     Full async pipeline for a document.
@@ -119,12 +120,61 @@ async def run_document_pipeline(
                 )
                 await _log_event(conn, doc_id, "extraction_success")
 
-            # ── Step 3: Chunking + Embedding ──────────────────────────
-            logger.info(f"[{doc_id}] Chunking and embedding...")
-            await _update_status(conn, doc_id, "embedding")
-            await _log_event(conn, doc_id, "embedding_start")
+            if require_confirmation:
+                logger.info(f"[{doc_id}] Awaiting confirmation before chunking...")
+                await _update_status(conn, doc_id, "awaiting_confirmation")
+                return
 
-            chunks = chunk_text(raw_text)
+            # Continue directly to chunking if no confirmation required
+            await _run_chunking_internal(conn, doc_id, user_id)
+
+        except Exception as e:
+            logger.error(f"[{doc_id}] Pipeline failed: {e}", exc_info=True)
+            # Increment retry counter
+            await conn.execute(
+                """
+                UPDATE documents
+                SET status='failed', error_message=$1,
+                    retry_count=retry_count+1, updated_at=NOW()
+                WHERE id=$2::uuid
+                """,
+                str(e), doc_id,
+            )
+            await _log_event(conn, doc_id, "pipeline_failed", str(e))
+
+async def run_chunking_pipeline(doc_id: str, user_id: str):
+    """Resume pipeline from awaiting_confirmation (called after user confirms)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await set_rls_user(conn, user_id)
+        try:
+            await _run_chunking_internal(conn, doc_id, user_id)
+        except Exception as e:
+            logger.error(f"[{doc_id}] Chunking pipeline failed: {e}", exc_info=True)
+            await conn.execute(
+                """
+                UPDATE documents
+                SET status='failed', error_message=$1, updated_at=NOW()
+                WHERE id=$2::uuid
+                """,
+                str(e), doc_id,
+            )
+            await _log_event(conn, doc_id, "pipeline_failed", str(e))
+
+async def _run_chunking_internal(conn: asyncpg.Connection, doc_id: str, user_id: str):
+    """Internal helper to run the chunking and embedding steps."""
+    logger.info(f"[{doc_id}] Chunking and embedding...")
+    await _update_status(conn, doc_id, "embedding")
+    await _log_event(conn, doc_id, "embedding_start")
+
+    # Fetch raw_text since it was saved in Step 1
+    row = await conn.fetchrow("SELECT raw_text FROM documents WHERE id=$1::uuid", doc_id)
+    raw_text = row["raw_text"] if row else ""
+
+    if not raw_text:
+        logger.warning(f"[{doc_id}] No raw_text found for chunking")
+    else:
+        chunks = chunk_text(raw_text)
             if chunks:
                 embeddings = await embed_chunks([c["text"] for c in chunks])
 
@@ -150,21 +200,7 @@ async def run_document_pipeline(
 
                 await _log_event(conn, doc_id, "embedding_success", f"{len(chunks)} chunks")
 
-            # ── Step 4: Mark ready ────────────────────────────────────
-            await _update_status(conn, doc_id, "ready")
-            await _log_event(conn, doc_id, "pipeline_complete")
-            logger.info(f"[{doc_id}] Pipeline complete.")
-
-        except Exception as e:
-            logger.error(f"[{doc_id}] Pipeline failed: {e}", exc_info=True)
-            # Increment retry counter
-            await conn.execute(
-                """
-                UPDATE documents
-                SET status='failed', error_message=$1,
-                    retry_count=retry_count+1, updated_at=NOW()
-                WHERE id=$2::uuid
-                """,
-                str(e), doc_id,
-            )
-            await _log_event(conn, doc_id, "pipeline_failed", str(e))
+    # ── Step 4: Mark ready ────────────────────────────────────
+    await _update_status(conn, doc_id, "ready")
+    await _log_event(conn, doc_id, "pipeline_complete")
+    logger.info(f"[{doc_id}] Pipeline complete.")

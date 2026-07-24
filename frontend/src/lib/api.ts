@@ -49,12 +49,13 @@ export async function getDocument(id: string, token: string) {
   });
 }
 
-export async function uploadDocument(file: File, token: string, onProgress?: (p: number) => void) {
+export async function uploadDocument(file: File, token: string, requireConfirmation: boolean = false, onProgress?: (p: number) => void) {
   return new Promise<any>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const formData = new FormData();
     formData.append("file", file);
-    xhr.open("POST", `${BACKEND}/api/documents/upload`);
+    const url = `${BACKEND}/api/documents/upload${requireConfirmation ? "?require_confirmation=true" : ""}`;
+    xhr.open("POST", url);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     if (onProgress) xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
     xhr.onload = () => {
@@ -63,6 +64,14 @@ export async function uploadDocument(file: File, token: string, onProgress?: (p:
     };
     xhr.onerror = () => reject(new Error("Network error"));
     xhr.send(formData);
+  });
+}
+
+export async function confirmDocument(id: string, fields: any, token: string) {
+  return apiFetch(`/api/documents/${id}/confirm`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(fields),
   });
 }
 

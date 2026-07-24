@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS documents (
     mime_type     TEXT,
     file_size     BIGINT,
     status        TEXT NOT NULL DEFAULT 'pending'
-                      CHECK (status IN ('pending','ocr_processing','embedding','ready','failed')),
+                      CHECK (status IN ('pending','ocr_processing','awaiting_confirmation','embedding','ready','failed')),
     raw_text      TEXT,                  -- full OCR output
     retry_count   INT NOT NULL DEFAULT 0,
     error_message TEXT,
