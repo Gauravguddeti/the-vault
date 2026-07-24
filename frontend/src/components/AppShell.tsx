@@ -5,6 +5,7 @@ import { signOut, useSession } from "next-auth/react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useDocumentIngest } from "@/lib/useDocumentIngest";
 import ConfirmUploadModal from "@/components/ConfirmUploadModal";
+import { compressImage } from "@/lib/imageUtils";
 
 // Offline queue stored in localStorage
 const OFFLINE_QUEUE_KEY = "vault-offline-queue";
@@ -136,8 +137,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     e.preventDefault();
     dragCounter.current = 0;
     setGlobalDragging(false);
-    const file = e.dataTransfer.files[0];
+    let file = e.dataTransfer.files[0];
     if (!file) return;
+    
+    if (file.type.startsWith("image/")) {
+      file = await compressImage(file);
+    }
+
     if (!isOnline) {
       await queueOffline(file);
       return;
@@ -310,9 +316,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         accept="image/*"
         capture="environment"
         className="hidden"
-        onChange={e => {
+        onChange={async e => {
           const f = e.target.files?.[0];
-          if (f) addScanPage(f);
+          if (f) {
+            const compressed = await compressImage(f);
+            addScanPage(compressed);
+          }
           e.target.value = "";
         }}
       />

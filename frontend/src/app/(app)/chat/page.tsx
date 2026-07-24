@@ -3,6 +3,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useDocumentIngest } from "@/lib/useDocumentIngest";
 import ConfirmUploadModal from "@/components/ConfirmUploadModal";
+import { compressImage } from "@/lib/imageUtils";
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -191,7 +192,10 @@ export default function ChatPage() {
     return null;
   }
 
-  function handleFileSelect(file: File) {
+  async function handleFileSelect(file: File) {
+    if (file.type.startsWith("image/")) {
+      file = await compressImage(file);
+    }
     const err = validateFile(file);
     if (err) {
       setMessages(prev => [...prev, {
@@ -455,7 +459,7 @@ export default function ChatPage() {
                 </button>
                 <input ref={fileInputRef} type="file" className="hidden"
                   accept=".pdf,.jpg,.jpeg,.png,.tiff,.tif,.webp"
-                  onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); e.target.value = ""; }}
+                  onChange={async e => { const f = e.target.files?.[0]; if (f) await handleFileSelect(f); e.target.value = ""; }}
                 />
                 <textarea
                   ref={textareaRef}
