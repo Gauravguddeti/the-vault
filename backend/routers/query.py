@@ -2,7 +2,8 @@
 import asyncpg
 import uuid
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from core.rate_limit import limiter
 
 from core.auth import get_current_user, get_db_with_rls
 from agents.vault_agent import get_agent
@@ -23,7 +24,9 @@ class QueryResponse(BaseModel):
 
 
 @router.post("", response_model=QueryResponse)
+@limiter.limit("20/minute")
 async def run_query(
+    request: Request,
     body: QueryRequest,
     user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_with_rls),
@@ -53,6 +56,15 @@ async def run_query(
         "sources": [],
         "context_truncated": False,
     })
+
+    # Audit log
+    await conn.execute(
+        """
+        INSERT INTO audit_logs (user_id, action, resource_id, details)
+        VALUES ($1::uuid, 'query_run', $2::uuid, $3)
+        """,
+        user["user_id"], body.session_id, f"Query Type: {result['query_type']}"
+    )
 
     return {
         "answer": result["answer"],

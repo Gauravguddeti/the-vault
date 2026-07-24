@@ -6,7 +6,8 @@ import os
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, BackgroundTasks, Request
+from core.rate_limit import limiter
 from pydantic import BaseModel
 
 import asyncpg
@@ -41,27 +42,36 @@ class RenameRequest(BaseModel):
     original_name: str
 
 
+import filetype
+
 # ── Upload ─────────────────────────────────────────────────────────────
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 async def upload_document(
+    request: Request,
     background_tasks: BackgroundTasks,
     require_confirmation: bool = False,
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_with_rls),
 ):
-    # Validate mime type
-    if file.content_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type: {file.content_type}. Allowed: PDF, JPG, PNG, TIFF, WEBP",
-        )
-
-    # Read and validate size
+    # Read contents first
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File too large. Maximum is 25 MB.")
+        
+    # Strictly validate mime type using magic bytes
+    kind = filetype.guess(contents)
+    actual_mime = kind.mime if kind else None
+    
+    if actual_mime not in ALLOWED_MIME_TYPES:
+        # Some plain text formats like simple CSVs might not be detected by filetype,
+        # but our ALLOWED_MIME_TYPES are all binary (PDF, JPG, PNG, TIFF, WEBP).
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type detected. Allowed: PDF, JPG, PNG, TIFF, WEBP",
+        )
 
     # Save to disk
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -202,6 +212,7 @@ async def list_documents(
 @router.get("/{doc_id}")
 async def get_document(
     doc_id: str,
+    user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_with_rls),
 ):
     row = await conn.fetchrow(
@@ -219,6 +230,15 @@ async def get_document(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Document not found")
+        
+    # Audit log
+    await conn.execute(
+        """
+        INSERT INTO audit_logs (user_id, action, resource_id, details)
+        VALUES ($1::uuid, 'document_viewed', $2::uuid, 'Viewed via detail route')
+        """,
+        user["user_id"], doc_id
+    )
     return dict(row)
 
 

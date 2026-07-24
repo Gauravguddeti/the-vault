@@ -126,4 +126,6 @@
  9 . 0   I n - c h a t   a t t a c h   +   c o n f i r m   f l o w  
  1 0 . 0   S h a r e - t a r g e t   i n t e g r a t i o n  
  1 1 . 0   M o b i l e   s c a n n e r   w i t h   m u l t i - p a g e   c a p t u r e  
+ 1 2 . 0   S e c u r i t y   h a r d e n i n g   p a s s  
+ 1 3 . 0   S t r u c t u r e d   a g g r e g a t i o n   q u e r y   p i p e l i n e  
  

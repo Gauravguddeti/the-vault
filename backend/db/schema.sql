@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE documents FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY docs_user_isolation ON documents
     USING (user_id = current_setting('app.current_user_id', true)::uuid);
@@ -89,6 +90,7 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 
 ALTER TABLE chunks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chunks FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY chunks_user_isolation ON chunks
     USING (user_id = current_setting('app.current_user_id', true)::uuid);
@@ -117,6 +119,7 @@ CREATE TABLE IF NOT EXISTS extracted_fields (
 );
 
 ALTER TABLE extracted_fields ENABLE ROW LEVEL SECURITY;
+ALTER TABLE extracted_fields FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY fields_user_isolation ON extracted_fields
     USING (user_id = current_setting('app.current_user_id', true)::uuid);
@@ -139,6 +142,27 @@ CREATE TABLE IF NOT EXISTS processing_logs (
 CREATE INDEX IF NOT EXISTS idx_processing_logs_document_id ON processing_logs(document_id);
 CREATE INDEX IF NOT EXISTS idx_processing_logs_created_at ON processing_logs(created_at);
 
+-- ── Audit Logs ────────────────────────────────────────────────────────
+-- Security tracking for data access events (A7)
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+    action      TEXT NOT NULL,   -- e.g. 'document_viewed', 'query_run'
+    resource_id UUID,            -- The document_id or session_id accessed
+    details     TEXT,            -- Any extra context (e.g. query type)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- No RLS needed for inserts, but for viewing we can enforce it.
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY audit_logs_user_isolation ON audit_logs
+    USING (user_id = current_setting('app.current_user_id', true)::uuid);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+
 -- ── Conversation Sessions ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS conversation_sessions (
     id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -151,6 +175,7 @@ CREATE TABLE IF NOT EXISTS conversation_sessions (
 );
 
 ALTER TABLE conversation_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_sessions FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY sessions_user_isolation ON conversation_sessions
     USING (user_id = current_setting('app.current_user_id', true)::uuid);
@@ -171,6 +196,7 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 );
 
 ALTER TABLE conversation_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_messages FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY messages_user_isolation ON conversation_messages
     USING (user_id = current_setting('app.current_user_id', true)::uuid);

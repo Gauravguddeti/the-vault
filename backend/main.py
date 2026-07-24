@@ -14,6 +14,8 @@ from services.cron import register_cron_jobs
 from core.config import settings
 
 
+from core.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
@@ -32,6 +34,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
