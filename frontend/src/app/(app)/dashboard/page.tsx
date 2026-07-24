@@ -52,6 +52,12 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, [docs, fetchDocs]);
 
+  // Listen for global upload complete event
+  useEffect(() => {
+    window.addEventListener("vault-upload-complete", fetchDocs);
+    return () => window.removeEventListener("vault-upload-complete", fetchDocs);
+  }, [fetchDocs]);
+
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     try {
@@ -77,7 +83,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">Your Documents</h1>
+          <h1 className="text-2xl font-bold">Your Vault</h1>
           <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
             {docs.length} document{docs.length !== 1 ? "s" : ""} in your vault
           </p>

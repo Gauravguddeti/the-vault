@@ -44,7 +44,25 @@ export default function ConfirmUploadModal({
     }
   }, [document, status]);
 
+  // Fire global event when upload is complete so dashboard refreshes instantly
+  useEffect(() => {
+    if (status === "ready") {
+      window.dispatchEvent(new Event("vault-upload-complete"));
+    }
+  }, [status]);
+
   if (!isOpen) return null;
+
+  const handleAutoConfirm = () => {
+    // Use AI-detected fields as-is
+    onConfirm({
+      title: document?.original_name || "",
+      category: document?.category || "",
+      date: document?.txn_date || "",
+      vendor: document?.vendor || "",
+      amount: document?.amount ? parseFloat(document.amount) : null,
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
@@ -83,6 +101,25 @@ export default function ConfirmUploadModal({
                 ⚠️ {duplicateWarning}
               </div>
             )}
+
+            {/* Auto-confirm shortcut */}
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+              style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <p className="text-xs flex-1" style={{ color: "var(--text-secondary)" }}>
+                AI detected all fields. Trust it and add instantly.
+              </p>
+              <button
+                id="auto-confirm-btn"
+                onClick={handleAutoConfirm}
+                className="flex-shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg transition-all active:scale-95"
+                style={{ background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.4)", color: "#818cf8" }}>
+                Do it yourself!
+              </button>
+            </div>
+
             <div>
               <label className="block text-sm text-[var(--text-secondary)] mb-1">Title</label>
               <input
@@ -138,7 +175,7 @@ export default function ConfirmUploadModal({
             </div>
             
             <p className="text-xs text-[var(--text-muted)] mt-2 italic">
-              These fields were auto-detected by AI. Please correct them if necessary.
+              These fields were auto-detected by AI. Correct any mistakes above, then confirm.
             </p>
 
             <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-[var(--border)]">
@@ -158,12 +195,13 @@ export default function ConfirmUploadModal({
         {status === "ready" && (
           <div className="flex flex-col items-center justify-center py-6 space-y-4">
             <div className="w-16 h-16 bg-green-500/20 text-green-500 rounded-full flex items-center justify-center">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
             </div>
-            <p className="text-center text-[var(--text-secondary)]">
-              Added to your Vault successfully.
+            <p className="font-semibold text-[var(--text-primary)]">Added to your Vault!</p>
+            <p className="text-sm text-center text-[var(--text-secondary)]">
+              It's indexed and ready to query in the chat.
             </p>
             <button onClick={onCancel} className="mt-4 px-6 py-2 rounded-lg text-sm bg-[var(--surface-2)] hover:bg-[var(--surface-3)] transition-colors">
               Close
@@ -171,7 +209,7 @@ export default function ConfirmUploadModal({
           </div>
         )}
         
-        {/* Simple close button for cancel during upload/analyze */}
+        {/* Close button during upload/analyze */}
         {(status === "uploading" || status === "analyzing" || status === "error") && (
           <button onClick={onCancel} className="absolute top-4 right-4 text-[var(--text-muted)] hover:text-white">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
