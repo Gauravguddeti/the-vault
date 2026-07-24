@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     MISTRAL_API_KEY: str = ""
 
     # Embedding
-    EMBEDDING_PROVIDER: str = "ollama"     # ollama | openai
+    EMBEDDING_PROVIDER: str = "fastembed"
     OLLAMA_ENDPOINT: str = "http://localhost:11434"
     OPENAI_API_KEY: str = ""
-    EMBEDDING_MODEL: str = "nomic-embed-text"
-    EMBEDDING_DIM: int = 768
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
+    EMBEDDING_DIM: int = 384
 
     # Query tuning
     MIN_SIMILARITY_SCORE: float = 0.72
