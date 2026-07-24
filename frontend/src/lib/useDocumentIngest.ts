@@ -18,7 +18,7 @@ export function useDocumentIngest(token: string) {
 
     try {
       // 1. Upload with require_confirmation=true
-      const uploadRes = await uploadDocument(file, token, true, (p) => setProgress(p));
+      const uploadRes = await uploadDocument(file, token, true, (p) => setProgress(p)) as any;
       const docId = uploadRes.id;
       
       setStatus("analyzing");
@@ -60,7 +60,7 @@ export function useDocumentIngest(token: string) {
     setError(null);
 
     try {
-      const res = await confirmDocument(document.id, fields, token);
+      const res = await confirmDocument(document.id, fields, token) as any;
       if (res.duplicate_warning) setDuplicateWarning(res.duplicate_warning);
       
       // Poll until ready
