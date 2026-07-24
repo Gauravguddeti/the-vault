@@ -2,18 +2,16 @@
 The Vault — LangGraph RAG Agent with per-user memory.
 
 Graph flow:
-  load_memory → classify_query → [chat | retrieve | sql_aggregate] → generate_answer → save_memory
+  load_memory → classify_query → [chat | retrieve | sql_aggregate | out_of_scope] → generate_answer → save_memory
 
 Query types:
-  - "chat"        → casual greetings, small talk, general questions (no doc search needed)
-  - "lookup"      → document-specific factual questions
-  - "aggregation" → totals, sums, counts over extracted fields
+  - "chat"         → casual conversation, greetings, small talk, follow-up chit-chat
+  - "lookup"       → document-specific factual questions
+  - "aggregation"  → totals, sums, counts over extracted document fields
+  - "out_of_scope" → requests beyond The Vault's purpose (guardrail)
 
-Features:
-  - Hinglish-aware (Hindi + English mix)
-  - Tone-adaptive (mirrors user's casual/formal style)
-  - Anti-hallucination for document facts
-  - Zero-chunk guard for lookup queries
+Classifier uses a fast LLM call (llama-3.1-8b-instant) for accurate intent detection,
+including multi-turn context awareness. No keyword brittle matching.
 """
 import json
 import logging
@@ -38,7 +36,7 @@ class VaultState(TypedDict):
     user_id: str
     conn: Any                        # asyncpg connection (RLS-scoped)
     history: List[Dict]              # previous messages from DB
-    query_type: str                  # "chat" | "lookup" | "aggregation"
+    query_type: str                  # "chat" | "lookup" | "aggregation" | "out_of_scope"
     chunks: List[Dict]               # retrieved chunks
     sql_result: Optional[Dict]       # aggregation SQL result
     answer: str
@@ -46,70 +44,78 @@ class VaultState(TypedDict):
     context_truncated: bool
 
 
-# ── Keyword lists ──────────────────────────────────────────────────────
+# ── Prompts ────────────────────────────────────────────────────────────
 
-AGGREGATION_KEYWORDS = [
-    "total", "sum", "how much", "how many", "count", "all",
-    "average", "avg", "spend", "spent", "cost", "costs",
-    "add up", "tally", "aggregate", "kitna", "kitne", "total karo",
-    "jod", "pura", "sab",
-]
+CLASSIFIER_PROMPT = """You are an intent classifier for "The Vault" — a personal document management and expense tracking assistant.
 
-# Conversational triggers — greetings, small talk, general questions
-CHAT_PATTERNS = [
-    # Greetings
-    "hi", "hello", "hey", "heyy", "heyyy", "heyyyy", "hiii", "hiiii",
-    "hola", "yo", "sup", "what's up", "wassup", "whatsup",
-    # Hindi/Hinglish greetings
-    "namaste", "namaskar", "kem cho", "kaise ho", "kya haal", "kya chal raha",
-    "kya scene", "bhai", "yaar", "dost",
-    # Thanks / acknowledgement
-    "thanks", "thank you", "shukriya", "dhanyawad", "thx", "ty",
-    "ok", "okay", "cool", "got it", "nice", "great", "awesome",
-    "accha", "theek hai", "sahi hai", "bilkul",
-    # Farewells
-    "bye", "goodbye", "see ya", "later", "alvida", "phir milenge",
-    # Help / intro
-    "help", "what can you do", "who are you", "kya kar sakte ho",
-    "kya karta hai", "batao", "bata",
-]
+Classify the user's latest message into EXACTLY ONE of these categories:
 
+CHAT         — casual conversation, greetings (hi, hey, sup, how are you, thanks, bye), small talk, questions about the assistant itself, follow-up chit-chat, expressions of feeling, acknowledgements
+DOCUMENT     — questions about specific documents, receipts, invoices, files, what's in a document, finding information from uploaded files
+AGGREGATE    — asking for totals, sums, averages, counts across documents (how much did I spend, total expenses, how many receipts)
+OUT_OF_SCOPE — requests completely unrelated to documents/expenses (write me code, tell me a news story, solve this math problem, general trivia)
 
-# ── System prompts ─────────────────────────────────────────────────────
+Rules:
+- If ambiguous between CHAT and anything else, prefer CHAT for short casual messages
+- Consider conversation history to determine if something is a follow-up (e.g. "what about that?" after a document question = DOCUMENT)
+- Reply with ONLY the category word. Nothing else.
 
-SYSTEM_PROMPT = """You are The Vault — a sharp, helpful personal document assistant.
+Recent conversation (for context):
+{history}
+
+Latest message: {question}
+
+Category:"""
+
+SYSTEM_PROMPT = """You are The Vault — a personal document assistant that helps users manage, search, and get insights from their uploaded documents (receipts, invoices, expenses, PDFs).
 
 ## LANGUAGE — STRICT RULE
-- Match the user's language exactly.
-  - User writes in English → you reply in English only.
-  - User writes in Hindi → you reply in Hindi only.
-  - User writes in Hinglish (mixed) → you reply in Hinglish.
-- Never switch languages on your own. Mirror exactly what the user uses.
-- You understand Hindi, English, and Hinglish equally well regardless of what you reply in.
+- Mirror the user's language exactly. English in → English out. Hindi in → Hindi out. Hinglish in → Hinglish out.
+- Never switch languages on your own.
+- You understand Hindi, English, and Hinglish equally well.
 
 ## TONE
-- Be natural and conversational, not robotic.
-- Match the user's energy: casual message → casual reply, formal message → formal reply.
-- Keep replies concise. Don't pad with filler.
+- Match the user's energy. Casual message → casual reply. Formal → formal.
+- Be natural. Not robotic. Not overly formal.
+- Concise. No unnecessary padding.
 
 ## EMOJIS
 - Do NOT use emojis by default.
-- Only use an emoji when there is genuine emotion, a pun, sarcasm, or something funny.
-- Never use emojis just to seem friendly.
+- Only use an emoji when there is genuine humor, sarcasm, or a clear emotional moment.
 
-## YOUR TWO MODES
+## WHAT YOU DO
+You are a personal document assistant. You can:
+- Answer questions about the user's uploaded documents
+- Find specific receipts, invoices, or files
+- Calculate expense totals and summaries
+- Have normal conversations and answer questions about yourself
+- Help users understand how to use The Vault
 
-### Mode 1 — DOCUMENT Q&A (when context chunks are provided)
-- Answer ONLY from the provided document chunks. Never infer or fabricate.
-- If context doesn't have the answer, say so clearly and suggest uploading the relevant document.
-- Always cite sources: [Source: <document_name>, chunk <chunk_index>]
-- For numbers/amounts: use ONLY values explicitly in the context.
+## WHAT YOU DON'T DO (GUARDRAILS)
+- You do NOT write code, essays, or solve general programming problems
+- You do NOT answer general trivia or act as a search engine
+- You do NOT make up document facts — only what's in the actual uploaded documents
+- If asked something out of scope, redirect naturally: "That's outside what I can help with — I'm your document assistant. Ask me about your receipts, expenses, or files instead."
 
-### Mode 2 — GENERAL CHAT (when no context chunks)
-- Answer general or conversational questions naturally.
-- If a question clearly needs documents that haven't been uploaded, tell the user to upload them.
+## DOCUMENT Q&A MODE (when context chunks are provided)
+- Answer ONLY from the provided document chunks. Zero fabrication.
+- Always cite: [Source: <document_name>, chunk <chunk_index>]
+- Numbers/amounts: ONLY values explicitly in the context.
+- If context doesn't have the answer: say so clearly and suggest uploading the relevant document.
 
-Previous conversation is for context only — not a source of document facts."""
+## CHAT MODE (when no document context)
+- Respond naturally to greetings, small talk, questions about yourself.
+- You can discuss how The Vault works, what it can do, etc.
+
+Previous conversation is for context resolution — not a source of document facts."""
+
+OUT_OF_SCOPE_SYSTEM = """You are The Vault — a personal document assistant.
+
+The user has asked something outside your scope. Respond briefly and naturally, acknowledge their message, and redirect to what you can actually help with (document Q&A, expense tracking, finding receipts/invoices). 
+
+Be friendly, not dismissive. Keep it short — 1-2 sentences max.
+
+Mirror the user's language (English/Hindi/Hinglish)."""
 
 
 # ── Nodes ──────────────────────────────────────────────────────────────
@@ -148,53 +154,52 @@ async def load_memory_node(state: VaultState) -> VaultState:
 
 async def classify_query_node(state: VaultState) -> VaultState:
     """
-    Classify query into 3 types:
-    - 'chat'        → casual / conversational (no doc search needed)
-    - 'aggregation' → totals, sums, counts
-    - 'lookup'      → document Q&A
+    Use a fast LLM call to classify query intent accurately,
+    including multi-turn context awareness.
     """
     question = state["question"].strip()
-    question_lower = question.lower()
+    history = state.get("history", [])
 
-    # 1. Check for pure conversational queries (short + matches chat pattern)
-    # Strip punctuation for matching
-    clean = question_lower.strip("!?.,;: ")
-    words = clean.split()
+    # Build a short history snippet for the classifier
+    history_text = ""
+    if history:
+        recent = [m for m in history if m["role"] in ("user", "assistant")][-4:]
+        history_text = "\n".join(
+            f"{m['role'].capitalize()}: {m['content'][:120]}" for m in recent
+        )
 
-    is_chat = False
-    if len(words) <= 4:
-        # Short messages — check if any word or phrase matches chat patterns
-        for pattern in CHAT_PATTERNS:
-            if pattern in clean:
-                is_chat = True
-                break
+    if not history_text:
+        history_text = "(none — this is the first message)"
 
-    # Also catch very short messages with no document intent
-    if not is_chat and len(clean) <= 12:
-        # Check if message contains any document-search intent
-        doc_intent_words = [
-            "document", "file", "receipt", "invoice", "pdf", "amount",
-            "paid", "payment", "date", "vendor", "total", "expense",
-            "doc", "dekh", "find", "search", "show",
-        ]
-        has_doc_intent = any(w in question_lower for w in doc_intent_words)
-        has_agg_intent = any(kw in question_lower for kw in AGGREGATION_KEYWORDS)
-        if not has_doc_intent and not has_agg_intent:
-            is_chat = True
+    prompt = CLASSIFIER_PROMPT.format(
+        history=history_text,
+        question=question,
+    )
 
-    if is_chat:
-        logger.info("Query classified as: chat")
-        return {**state, "query_type": "chat", "chunks": [], "sql_result": None}
+    try:
+        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+        response = await client.chat.completions.create(
+            model="llama-3.1-8b-instant",   # fast, cheap, good at classification
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=10,
+        )
+        raw = response.choices[0].message.content.strip().upper()
+    except Exception as e:
+        logger.error(f"Classifier LLM call failed: {e}, defaulting to 'lookup'")
+        raw = "DOCUMENT"
 
-    # 2. Check for aggregation
-    is_aggregation = any(kw in question_lower for kw in AGGREGATION_KEYWORDS)
-    if is_aggregation:
-        logger.info("Query classified as: aggregation")
-        return {**state, "query_type": "aggregation"}
+    if "AGGREGATE" in raw:
+        query_type = "aggregation"
+    elif "DOCUMENT" in raw:
+        query_type = "lookup"
+    elif "OUT" in raw or "SCOPE" in raw:
+        query_type = "out_of_scope"
+    else:
+        query_type = "chat"
 
-    # 3. Default: document lookup
-    logger.info("Query classified as: lookup")
-    return {**state, "query_type": "lookup"}
+    logger.info(f"Query classified as: {query_type!r} (raw classifier output: {raw!r})")
+    return {**state, "query_type": query_type, "chunks": [], "sql_result": None}
 
 
 async def retrieve_node(state: VaultState) -> VaultState:
@@ -204,10 +209,13 @@ async def retrieve_node(state: VaultState) -> VaultState:
 
     # Augment with recent history for better recall
     context_question = question
-    if state.get("history"):
-        last_msg = state["history"][-1].get("content", "") if state["history"] else ""
-        if last_msg and len(last_msg) < 200:
-            context_question = f"{last_msg} {question}"
+    history = state.get("history", [])
+    if history:
+        last_user_msgs = [m for m in history if m["role"] == "user"][-2:]
+        if last_user_msgs:
+            last = last_user_msgs[-1].get("content", "")
+            if last and len(last) < 200:
+                context_question = f"{last} {question}"
 
     query_vector = await embed_single(context_question)
     chunks = await vector_search(conn, query_vector)
@@ -231,7 +239,7 @@ async def retrieve_node(state: VaultState) -> VaultState:
 async def sql_aggregate_node(state: VaultState) -> VaultState:
     """
     For aggregation queries: run SQL on extracted_fields (RLS-enforced).
-    The LLM only rephrases the result — no math by LLM.
+    LLM only rephrases the result — no math by LLM.
     """
     conn = state["conn"]
     question_lower = state["question"].lower()
@@ -278,9 +286,9 @@ async def sql_aggregate_node(state: VaultState) -> VaultState:
                 """
             )
 
-        if row:
+        if row and row["total"] is not None:
             result = {
-                "total": float(row["total"]) if row["total"] else 0,
+                "total": float(row["total"]),
                 "count": row["count"],
                 "currency": row["currency"] or "USD",
                 "earliest": str(row["earliest"]) if row["earliest"] else None,
@@ -290,9 +298,13 @@ async def sql_aggregate_node(state: VaultState) -> VaultState:
     except Exception as e:
         logger.error(f"SQL aggregation failed: {e}")
 
-    # Also do vector retrieval for context
-    query_vector = await embed_single(state["question"])
-    chunks = await vector_search(conn, query_vector, limit=4)
+    # Also retrieve chunks for context
+    try:
+        query_vector = await embed_single(state["question"])
+        chunks = await vector_search(conn, query_vector, limit=4)
+    except Exception as e:
+        logger.error(f"Vector search in aggregation failed: {e}")
+        chunks = []
 
     return {**state, "sql_result": result, "chunks": chunks, "context_truncated": False}
 
@@ -300,23 +312,51 @@ async def sql_aggregate_node(state: VaultState) -> VaultState:
 async def generate_answer_node(state: VaultState) -> VaultState:
     """
     Generate an answer using Groq.
-    - For 'chat': answer conversationally without document context.
-    - For 'lookup': use retrieved chunks (zero-chunk guard applies).
-    - For 'aggregation': use SQL result + chunks.
+    Routes:
+      - chat         → conversational reply, no doc context
+      - out_of_scope → guardrail redirect
+      - lookup       → grounded doc answer (zero-chunk guard)
+      - aggregation  → SQL result + chunk context
     """
     chunks = state.get("chunks", [])
     query_type = state["query_type"]
     sql_result = state.get("sql_result")
+    history = state.get("history", [])
 
-    # ── Zero-chunk guard for lookup queries ───────────────────────────
+    # ── Out-of-scope guardrail ─────────────────────────────────────────
+    if query_type == "out_of_scope":
+        messages = [
+            {"role": "system", "content": OUT_OF_SCOPE_SYSTEM},
+            *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-4:],
+            {"role": "user", "content": state["question"]},
+        ]
+        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+        response = await client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=150,
+        )
+        return {**state, "answer": response.choices[0].message.content.strip(), "sources": []}
+
+    # ── Zero-chunk guard for document lookup ──────────────────────────
     if query_type == "lookup" and not chunks:
-        return {
-            **state,
-            "answer": "I couldn't find anything relevant in your documents for that. Try uploading the document you're referring to.",
-            "sources": [],
-        }
+        # Let the LLM handle it gracefully instead of a hardcoded string
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-6:],
+            {"role": "user", "content": f"{state['question']}\n\n[No relevant document chunks found. Inform the user clearly and suggest uploading the relevant document.]"},
+        ]
+        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+        response = await client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=200,
+        )
+        return {**state, "answer": response.choices[0].message.content.strip(), "sources": []}
 
-    # ── Build context ─────────────────────────────────────────────────
+    # ── Build document context ────────────────────────────────────────
     context_parts = []
 
     if query_type == "aggregation" and sql_result:
@@ -335,18 +375,16 @@ async def generate_answer_node(state: VaultState) -> VaultState:
 
     context = "\n\n---\n\n".join(context_parts) if context_parts else ""
 
-    # ── Build messages with history ───────────────────────────────────
+    # ── Build full message list ───────────────────────────────────────
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    for msg in state.get("history", []):
+    for msg in history:
         if msg["role"] in ("user", "assistant"):
             messages.append({"role": msg["role"], "content": msg["content"]})
 
-    # Build user message depending on mode
     if context:
         user_content = f"Context from documents:\n{context}\n\nQuestion: {state['question']}"
     else:
-        # Pure chat mode — no document context
         user_content = state["question"]
 
     messages.append({"role": "user", "content": user_content})
@@ -363,9 +401,8 @@ async def generate_answer_node(state: VaultState) -> VaultState:
     answer = response.choices[0].message.content.strip()
 
     if state.get("context_truncated"):
-        answer += "\n\n*Note: Some relevant documents were excluded due to context limits.*"
+        answer += "\n\n*Note: Some documents were excluded due to context limits.*"
 
-    # ── Build sources ─────────────────────────────────────────────────
     sources = [
         {
             "document_name": c["document_name"],
@@ -406,8 +443,8 @@ async def save_memory_node(state: VaultState) -> VaultState:
             state["query_type"],
         )
 
-        short_title = state["question"][:60]
         if not state.get("history"):
+            short_title = state["question"][:60]
             await conn.execute(
                 "UPDATE conversation_sessions SET title=$1, message_count=message_count+2, updated_at=NOW() WHERE id=$2::uuid",
                 short_title, session_id,
@@ -426,13 +463,13 @@ async def save_memory_node(state: VaultState) -> VaultState:
 # ── Route function ─────────────────────────────────────────────────────
 
 def route_query(state: VaultState) -> str:
-    """Route to: chat handler, retrieval, or SQL aggregation."""
+    """Route based on classified query type."""
     qt = state["query_type"]
-    if qt == "chat":
-        return "generate_answer"   # skip retrieval entirely for chat
+    if qt in ("chat", "out_of_scope"):
+        return "generate_answer"    # no retrieval needed
     if qt == "aggregation":
         return "sql_aggregate"
-    return "retrieve"
+    return "retrieve"               # lookup
 
 
 # ── Build graph ────────────────────────────────────────────────────────
@@ -451,7 +488,7 @@ def build_vault_agent():
     graph.set_entry_point("load_memory")
     graph.add_edge("load_memory", "classify_query")
     graph.add_conditional_edges("classify_query", route_query, {
-        "generate_answer": "generate_answer",   # chat shortcut
+        "generate_answer": "generate_answer",
         "retrieve": "retrieve",
         "sql_aggregate": "sql_aggregate",
     })
