@@ -15,7 +15,7 @@ import re
 from typing import Any, Dict, List, Optional, TypedDict
 
 import asyncpg
-from groq import Groq
+
 from langgraph.graph import END, StateGraph
 
 from core.config import settings
@@ -258,8 +258,9 @@ async def answer_node(state: VaultState) -> VaultState:
     })
 
     # ── Call Groq ─────────────────────────────────────────────────────
-    client = Groq(api_key=settings.GROQ_API_KEY)
-    response = client.chat.completions.create(
+    from groq import AsyncGroq
+    client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+    response = await client.chat.completions.create(
         model=settings.GROQ_MODEL,
         messages=messages,
         temperature=0.0,
