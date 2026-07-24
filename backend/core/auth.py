@@ -21,28 +21,26 @@ from core.config import settings
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+from jose import jwt, JWTError
+
 def _decode_nextauth_jwt(token: str) -> Optional[dict]:
     """
-    Decode a NextAuth v5 JWT (JWE or compact JWS).
-    NextAuth v5 uses encrypted JWTs (JWE) by default.
-    We decode using the NEXTAUTH_SECRET as the key.
-    For simplicity in local dev, we support the compact JWS format.
+    Securely decode and verify the JWT signed by the frontend using NEXTAUTH_SECRET.
     """
     try:
-        parts = token.split(".")
-        if len(parts) != 3:
+        # NextAuth signs using HS256 and the secret
+        secret = settings.NEXTAUTH_SECRET
+        if not secret:
             return None
-
-        # Decode payload (base64url, no padding)
-        payload_b64 = parts[1]
-        # Add padding
-        padding = 4 - len(payload_b64) % 4
-        if padding != 4:
-            payload_b64 += "=" * padding
-        payload_bytes = base64.urlsafe_b64decode(payload_b64)
-        payload = json.loads(payload_bytes)
+            
+        payload = jwt.decode(
+            token, 
+            secret, 
+            algorithms=["HS256"],
+            options={"verify_aud": False}
+        )
         return payload
-    except Exception:
+    except JWTError:
         return None
 
 
