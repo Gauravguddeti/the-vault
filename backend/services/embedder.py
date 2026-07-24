@@ -32,6 +32,8 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
         return await _embed_ollama(texts)
     elif provider == "openai":
         return await _embed_openai(texts)
+    elif provider == "fastembed":
+        return await _embed_fastembed(texts)
     else:
         raise ValueError(f"Unknown EMBEDDING_PROVIDER: {provider}")
 
@@ -63,3 +65,24 @@ async def _embed_openai(texts: List[str]) -> List[List[float]]:
     # Sort by index to preserve order
     sorted_data = sorted(response.data, key=lambda x: x.index)
     return [item.embedding for item in sorted_data]
+
+
+# Global fastembed model instance to avoid reloading on every request
+_fastembed_model = None
+
+async def _embed_fastembed(texts: List[str]) -> List[List[float]]:
+    """Embed using fastembed (local, free, CPU-optimized ONNX)."""
+    global _fastembed_model
+    if _fastembed_model is None:
+        from fastembed import TextEmbedding
+        logger.info(f"Loading fastembed model: {settings.EMBEDDING_MODEL}")
+        _fastembed_model = TextEmbedding(model_name=settings.EMBEDDING_MODEL)
+    
+    # fastembed returns a generator of numpy arrays
+    # We must run it in a threadpool to avoid blocking the asyncio event loop
+    loop = asyncio.get_running_loop()
+    
+    def generate_embeddings():
+        return [list(e) for e in _fastembed_model.embed(texts)]
+        
+    return await loop.run_in_executor(None, generate_embeddings)
