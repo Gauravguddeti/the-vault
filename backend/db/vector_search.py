@@ -27,24 +27,27 @@ async def vector_search(
 
     # pgvector cosine distance: 1 - cosine_similarity
     # So similarity = 1 - distance
-    rows = await conn.fetch(
-        """
-        SELECT
-            c.id::text        AS chunk_id,
-            c.document_id::text,
-            c.chunk_index,
-            c.text,
-            d.original_name   AS document_name,
-            1 - (c.embedding <=> $1::vector) AS similarity
-        FROM chunks c
-        JOIN documents d ON d.id = c.document_id
-        WHERE 1 - (c.embedding <=> $1::vector) >= $2
-        ORDER BY c.embedding <=> $1::vector
-        LIMIT $3
-        """,
-        str(query_embedding),
-        min_score,
-        limit,
-    )
-
-    return [dict(r) for r in rows]
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT
+                c.id::text        AS chunk_id,
+                c.document_id::text,
+                c.chunk_index,
+                c.text,
+                d.original_name   AS document_name,
+                1 - (c.embedding <=> $1::vector) AS similarity
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE 1 - (c.embedding <=> $1::vector) >= $2
+            ORDER BY c.embedding <=> $1::vector
+            LIMIT $3
+            """,
+            str(query_embedding),
+            min_score,
+            limit,
+        )
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Vector search failed: {e}")
+        return []
