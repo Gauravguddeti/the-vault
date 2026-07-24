@@ -122,3 +122,5 @@
 
 ---
 *Implementation tracking in `process-task-list.md`*
+8 . 0   F i x   r e t r i e v a l   p i p e l i n e   +   u p g r a d e   c h a t   p e r s o n a  
+ 

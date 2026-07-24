@@ -36,6 +36,7 @@ class VaultState(TypedDict):
     user_id: str
     conn: Any                        # asyncpg connection (RLS-scoped)
     history: List[Dict]              # previous messages from DB
+    document_index: str              # lightweight metadata of uploaded docs
     query_type: str                  # "chat" | "lookup" | "aggregation" | "out_of_scope"
     chunks: List[Dict]               # retrieved chunks
     sql_result: Optional[Dict]       # aggregation SQL result
@@ -51,13 +52,14 @@ CLASSIFIER_PROMPT = """You are an intent classifier for "The Vault" — a person
 Classify the user's latest message into EXACTLY ONE of these categories:
 
 CHAT         — casual conversation, greetings (hi, hey, sup, how are you, thanks, bye), small talk, questions about the assistant itself, follow-up chit-chat, expressions of feeling, acknowledgements
-DOCUMENT     — questions about specific documents, receipts, invoices, files, what's in a document, finding information from uploaded files
+DOCUMENT     — questions about specific documents, receipts, invoices, files, what's in a document, finding information from uploaded files (including meta-questions like "what did I upload today", "what is this document about")
 AGGREGATE    — asking for totals, sums, averages, counts across documents (how much did I spend, total expenses, how many receipts)
 OUT_OF_SCOPE — requests completely unrelated to documents/expenses (write me code, tell me a news story, solve this math problem, general trivia)
 
 Rules:
 - If ambiguous between CHAT and anything else, prefer CHAT for short casual messages
 - Consider conversation history to determine if something is a follow-up (e.g. "what about that?" after a document question = DOCUMENT)
+- Queries containing temporal language ("today", "this month") or vague references ("that document") should be DOCUMENT.
 - Reply with ONLY the category word. Nothing else.
 
 Recent conversation (for context):
@@ -67,45 +69,26 @@ Latest message: {question}
 
 Category:"""
 
-SYSTEM_PROMPT = """You are The Vault — a personal document assistant that helps users manage, search, and get insights from their uploaded documents (receipts, invoices, expenses, PDFs).
+SYSTEM_PROMPT = """You are the assistant inside The Vault, a private, self-hosted personal document archive. You have access to: the user's uploaded documents, their extracted text and structured fields (dates, amounts, categories), and a live index of everything uploaded and when.
+
+Personality: quietly sharp and permanently attentive — like an assistant who's already been paying attention and never needs re-briefing. Direct, warm, a little dry. Never robotic ("I do not have access to..."), never falsely humble. If you know it, say it plainly. If you don't, say that plainly too — no hedging filler.
+
+Rules:
+1. Always check the document index (filenames, dates, categories) before claiming you have no information — a document can be relevant even with a weak semantic match, especially for date-based questions like "what did I upload today".
+2. Never state a number, date, or fact that isn't directly grounded in retrieved content or the document index. For totals/sums, use the structured extracted fields table via SQL — never estimate from raw text.
+3. Cite the source document by name for every factual claim.
+4. If a question is ambiguous and multiple recent documents could match, don't dead-end — name the top 1-2 candidates and ask which one, or answer with your best guess and flag your confidence.
+5. If retrieval genuinely finds nothing, say so plainly and suggest a next step ("That doesn't look like it's in your Vault yet — want to check the Documents tab or re-upload it?") instead of a flat no.
+6. Never fabricate document contents, dates, or amounts, under any circumstance, even to sound more helpful.
 
 ## LANGUAGE — STRICT RULE
 - Mirror the user's language exactly. English in → English out. Hindi in → Hindi out. Hinglish in → Hinglish out.
 - Never switch languages on your own.
 - You understand Hindi, English, and Hinglish equally well.
 
-## TONE
-- Match the user's energy. Casual message → casual reply. Formal → formal.
-- Be natural. Not robotic. Not overly formal.
-- Concise. No unnecessary padding.
-
 ## EMOJIS
 - Do NOT use emojis by default.
 - Only use an emoji when there is genuine humor, sarcasm, or a clear emotional moment.
-
-## WHAT YOU DO
-You are a personal document assistant. You can:
-- Answer questions about the user's uploaded documents
-- Find specific receipts, invoices, or files
-- Calculate expense totals and summaries
-- Have normal conversations and answer questions about yourself
-- Help users understand how to use The Vault
-
-## WHAT YOU DON'T DO (GUARDRAILS)
-- You do NOT write code, essays, or solve general programming problems
-- You do NOT answer general trivia or act as a search engine
-- You do NOT make up document facts — only what's in the actual uploaded documents
-- If asked something out of scope, redirect naturally: "That's outside what I can help with — I'm your document assistant. Ask me about your receipts, expenses, or files instead."
-
-## DOCUMENT Q&A MODE (when context chunks are provided)
-- Answer ONLY from the provided document chunks. Zero fabrication.
-- Always cite: [Source: <document_name>, chunk <chunk_index>]
-- Numbers/amounts: ONLY values explicitly in the context.
-- If context doesn't have the answer: say so clearly and suggest uploading the relevant document.
-
-## CHAT MODE (when no document context)
-- Respond naturally to greetings, small talk, questions about yourself.
-- You can discuss how The Vault works, what it can do, etc.
 
 Previous conversation is for context resolution — not a source of document facts."""
 
@@ -149,7 +132,26 @@ async def load_memory_node(state: VaultState) -> VaultState:
             "content": f"[Earlier conversation summary]: {session['summary']}",
         })
 
-    return {**state, "history": history}
+    # Fetch lightweight document index
+    docs = await conn.fetch(
+        """
+        SELECT d.original_name, d.created_at, e.category 
+        FROM documents d
+        LEFT JOIN extracted_fields e ON d.id = e.document_id
+        WHERE d.status = 'ready'
+        ORDER BY d.created_at DESC
+        LIMIT 20
+        """
+    )
+    doc_index_lines = []
+    for d in docs:
+        cat = d['category'] or 'Uncategorized'
+        date_str = d['created_at'].strftime("%Y-%m-%d %H:%M") if d['created_at'] else 'Unknown date'
+        doc_index_lines.append(f"- {d['original_name']} (Uploaded: {date_str}, Category: {cat})")
+    
+    document_index = "\n".join(doc_index_lines) if doc_index_lines else "No documents uploaded yet."
+
+    return {**state, "history": history, "document_index": document_index}
 
 
 async def classify_query_node(state: VaultState) -> VaultState:
@@ -341,11 +343,11 @@ async def generate_answer_node(state: VaultState) -> VaultState:
 
     # ── Zero-chunk guard for document lookup ──────────────────────────
     if query_type == "lookup" and not chunks:
-        # Let the LLM handle it gracefully instead of a hardcoded string
+        index_context = f"[Live Document Index (Recent Uploads)]\n{state.get('document_index', 'None')}\n"
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-6:],
-            {"role": "user", "content": f"{state['question']}\n\n[No relevant document chunks found. Inform the user clearly and suggest uploading the relevant document.]"},
+            {"role": "user", "content": f"{index_context}\nQuestion: {state['question']}\n\n[Note: No detailed document text chunks were retrieved. Answer using the Document Index above if possible. If the information isn't in the index, inform the user plainly and suggest uploading.]"},
         ]
         client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         response = await client.chat.completions.create(
@@ -382,10 +384,12 @@ async def generate_answer_node(state: VaultState) -> VaultState:
         if msg["role"] in ("user", "assistant"):
             messages.append({"role": msg["role"], "content": msg["content"]})
 
+    index_context = f"[Live Document Index (Recent Uploads)]\n{state.get('document_index', 'None')}\n"
+
     if context:
-        user_content = f"Context from documents:\n{context}\n\nQuestion: {state['question']}"
+        user_content = f"{index_context}\nContext from documents:\n{context}\n\nQuestion: {state['question']}"
     else:
-        user_content = state["question"]
+        user_content = f"{index_context}\nQuestion: {state['question']}"
 
     messages.append({"role": "user", "content": user_content})
 
