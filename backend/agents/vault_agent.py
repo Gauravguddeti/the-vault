@@ -2,20 +2,25 @@
 The Vault — LangGraph RAG Agent with per-user memory.
 
 Graph flow:
-  load_memory → classify_query → [retrieve | sql_aggregate] → answer → save_memory
+  load_memory → classify_query → [chat | retrieve | sql_aggregate] → generate_answer → save_memory
 
-Anti-hallucination:
-  - Zero chunks → no LLM call → "I don't have enough information" response
-  - System prompt forbids inference beyond retrieved context
-  - Aggregation math done in SQL, LLM only rephrases result
+Query types:
+  - "chat"        → casual greetings, small talk, general questions (no doc search needed)
+  - "lookup"      → document-specific factual questions
+  - "aggregation" → totals, sums, counts over extracted fields
+
+Features:
+  - Hinglish-aware (Hindi + English mix)
+  - Tone-adaptive (mirrors user's casual/formal style)
+  - Anti-hallucination for document facts
+  - Zero-chunk guard for lookup queries
 """
 import json
 import logging
-import re
 from typing import Any, Dict, List, Optional, TypedDict
 
 import asyncpg
-
+from groq import AsyncGroq
 from langgraph.graph import END, StateGraph
 
 from core.config import settings
@@ -23,6 +28,7 @@ from db.vector_search import vector_search
 from services.embedder import embed_single
 
 logger = logging.getLogger(__name__)
+
 
 # ── State ─────────────────────────────────────────────────────────────
 
@@ -32,36 +38,74 @@ class VaultState(TypedDict):
     user_id: str
     conn: Any                        # asyncpg connection (RLS-scoped)
     history: List[Dict]              # previous messages from DB
-    query_type: str                  # "lookup" | "aggregation"
+    query_type: str                  # "chat" | "lookup" | "aggregation"
     chunks: List[Dict]               # retrieved chunks
     sql_result: Optional[Dict]       # aggregation SQL result
     answer: str
     sources: List[Dict]
     context_truncated: bool
 
-# ── Aggregation keywords ───────────────────────────────────────────────
+
+# ── Keyword lists ──────────────────────────────────────────────────────
 
 AGGREGATION_KEYWORDS = [
     "total", "sum", "how much", "how many", "count", "all",
     "average", "avg", "spend", "spent", "cost", "costs",
-    "add up", "tally", "aggregate",
+    "add up", "tally", "aggregate", "kitna", "kitne", "total karo",
+    "jod", "pura", "sab",
 ]
 
-# ── Grounded system prompt ─────────────────────────────────────────────
+# Conversational triggers — greetings, small talk, general questions
+CHAT_PATTERNS = [
+    # Greetings
+    "hi", "hello", "hey", "heyy", "heyyy", "heyyyy", "hiii", "hiiii",
+    "hola", "yo", "sup", "what's up", "wassup", "whatsup",
+    # Hindi/Hinglish greetings
+    "namaste", "namaskar", "kem cho", "kaise ho", "kya haal", "kya chal raha",
+    "kya scene", "bhai", "yaar", "dost",
+    # Thanks / acknowledgement
+    "thanks", "thank you", "shukriya", "dhanyawad", "thx", "ty",
+    "ok", "okay", "cool", "got it", "nice", "great", "awesome",
+    "accha", "theek hai", "sahi hai", "bilkul",
+    # Farewells
+    "bye", "goodbye", "see ya", "later", "alvida", "phir milenge",
+    # Help / intro
+    "help", "what can you do", "who are you", "kya kar sakte ho",
+    "kya karta hai", "batao", "bata",
+]
 
-GROUNDED_SYSTEM_PROMPT = """You are The Vault assistant — a private document Q&A system.
 
-CRITICAL RULES you must ALWAYS follow:
-1. Answer ONLY from the provided context. Never infer, estimate, or guess beyond what is explicitly stated.
-2. If the context does not contain enough information, respond EXACTLY with:
-   "I don't have enough information in your documents to answer that question."
-3. Always cite your sources using the format: [Source: <document_name>, chunk <chunk_index>]
-4. For numbers and amounts, use ONLY values explicitly present in the context.
-5. Do not fabricate document names, dates, amounts, or any other facts.
+# ── System prompts ─────────────────────────────────────────────────────
 
-Previous conversation is provided for context resolution only — do not treat it as a source of facts about the user's documents."""
+SYSTEM_PROMPT = """You are The Vault — a smart, friendly personal document assistant.
 
-NO_INFO_RESPONSE = "I don't have enough information in your documents to answer that question."
+## YOUR PERSONALITY
+- You are warm, helpful, and conversational. Not robotic.
+- You adapt to how the user talks. If they're casual, you're casual. If formal, you're formal.
+- You understand Hinglish (a natural mix of Hindi and English). Reply in the same language mix the user uses.
+- If someone says "kya haal" reply naturally, "sab theek! Bata kya chahiye?" etc.
+- Use emojis occasionally when the vibe is casual.
+
+## YOUR TWO MODES
+
+### Mode 1 — DOCUMENT Q&A (when context chunks are provided)
+- Answer ONLY from the provided document chunks. Never infer or fabricate.
+- If context doesn't have the answer, say so honestly: "Yaar, iske baare mein mujhe documents mein kuch nahi mila. Try uploading the relevant document!"
+- Always cite sources: [Source: <document_name>, chunk <chunk_index>]
+- For numbers/amounts: use ONLY values from the context.
+
+### Mode 2 — GENERAL CHAT (when no context chunks)
+- Answer general/conversational questions naturally.
+- You can answer basic general knowledge, help questions, or just chat.
+- If someone asks something that needs their documents but they haven't uploaded any, gently nudge them: "Upload karo apna document, phir main properly bata sakta hoon!"
+
+## LANGUAGE RULES
+- Understand Hindi, English, and Hinglish equally well.
+- Reply in whatever language mix the user used.
+- Common Hinglish words you should understand: kya, hai, nahi, haan, accha, sahi, bata, dekh, bol, kar, mera, tera, yaar, bhai, dost, theek, chal, aur, matlab, toh, phir, abhi, kab, kaise, kitna, kaun, kahan
+
+Previous conversation is for context only — not a source of document facts."""
+
 
 # ── Nodes ──────────────────────────────────────────────────────────────
 
@@ -70,7 +114,6 @@ async def load_memory_node(state: VaultState) -> VaultState:
     conn = state["conn"]
     session_id = state["session_id"]
 
-    # Fetch summary of old messages (if exists) + recent messages
     session = await conn.fetchrow(
         "SELECT summary FROM conversation_sessions WHERE id=$1::uuid",
         session_id,
@@ -87,9 +130,8 @@ async def load_memory_node(state: VaultState) -> VaultState:
         settings.MEMORY_WINDOW,
     )
 
-    history = [dict(m) for m in reversed(messages)]  # chronological order
+    history = [dict(m) for m in reversed(messages)]
 
-    # Prepend summary if exists
     if session and session["summary"]:
         history.insert(0, {
             "role": "system",
@@ -100,12 +142,54 @@ async def load_memory_node(state: VaultState) -> VaultState:
 
 
 async def classify_query_node(state: VaultState) -> VaultState:
-    """Classify query as 'lookup' or 'aggregation' based on keywords."""
-    question_lower = state["question"].lower()
+    """
+    Classify query into 3 types:
+    - 'chat'        → casual / conversational (no doc search needed)
+    - 'aggregation' → totals, sums, counts
+    - 'lookup'      → document Q&A
+    """
+    question = state["question"].strip()
+    question_lower = question.lower()
+
+    # 1. Check for pure conversational queries (short + matches chat pattern)
+    # Strip punctuation for matching
+    clean = question_lower.strip("!?.,;: ")
+    words = clean.split()
+
+    is_chat = False
+    if len(words) <= 4:
+        # Short messages — check if any word or phrase matches chat patterns
+        for pattern in CHAT_PATTERNS:
+            if pattern in clean:
+                is_chat = True
+                break
+
+    # Also catch very short messages with no document intent
+    if not is_chat and len(clean) <= 12:
+        # Check if message contains any document-search intent
+        doc_intent_words = [
+            "document", "file", "receipt", "invoice", "pdf", "amount",
+            "paid", "payment", "date", "vendor", "total", "expense",
+            "doc", "dekh", "find", "search", "show",
+        ]
+        has_doc_intent = any(w in question_lower for w in doc_intent_words)
+        has_agg_intent = any(kw in question_lower for kw in AGGREGATION_KEYWORDS)
+        if not has_doc_intent and not has_agg_intent:
+            is_chat = True
+
+    if is_chat:
+        logger.info("Query classified as: chat")
+        return {**state, "query_type": "chat", "chunks": [], "sql_result": None}
+
+    # 2. Check for aggregation
     is_aggregation = any(kw in question_lower for kw in AGGREGATION_KEYWORDS)
-    query_type = "aggregation" if is_aggregation else "lookup"
-    logger.info(f"Query classified as: {query_type}")
-    return {**state, "query_type": query_type}
+    if is_aggregation:
+        logger.info("Query classified as: aggregation")
+        return {**state, "query_type": "aggregation"}
+
+    # 3. Default: document lookup
+    logger.info("Query classified as: lookup")
+    return {**state, "query_type": "lookup"}
 
 
 async def retrieve_node(state: VaultState) -> VaultState:
@@ -113,7 +197,7 @@ async def retrieve_node(state: VaultState) -> VaultState:
     conn = state["conn"]
     question = state["question"]
 
-    # Include recent history context in the query embedding for better recall
+    # Augment with recent history for better recall
     context_question = question
     if state.get("history"):
         last_msg = state["history"][-1].get("content", "") if state["history"] else ""
@@ -123,13 +207,13 @@ async def retrieve_node(state: VaultState) -> VaultState:
     query_vector = await embed_single(context_question)
     chunks = await vector_search(conn, query_vector)
 
-    # Apply token cap
+    # Token cap
     total_tokens = 0
     filtered_chunks = []
     truncated = False
 
     for chunk in chunks:
-        chunk_tokens = len(chunk["text"].split()) * 1.3  # rough estimate
+        chunk_tokens = len(chunk["text"].split()) * 1.3
         if total_tokens + chunk_tokens > settings.MAX_CONTEXT_TOKENS:
             truncated = True
             break
@@ -142,14 +226,13 @@ async def retrieve_node(state: VaultState) -> VaultState:
 async def sql_aggregate_node(state: VaultState) -> VaultState:
     """
     For aggregation queries: run SQL on extracted_fields (RLS-enforced).
-    The LLM will only rephrase the result — no math by LLM.
+    The LLM only rephrases the result — no math by LLM.
     """
     conn = state["conn"]
     question_lower = state["question"].lower()
     result = {}
 
     try:
-        # Determine aggregation type and optional category filter
         category_filter = None
         for cat in ["medical", "dental", "food", "transport", "electronics",
                     "repairs", "insurance", "taxes", "rent", "utilities"]:
@@ -209,20 +292,22 @@ async def sql_aggregate_node(state: VaultState) -> VaultState:
     return {**state, "sql_result": result, "chunks": chunks, "context_truncated": False}
 
 
-async def answer_node(state: VaultState) -> VaultState:
+async def generate_answer_node(state: VaultState) -> VaultState:
     """
-    Generate a grounded answer using Groq.
-    Zero-chunk guard: if no chunks, return NO_INFO_RESPONSE without calling LLM.
+    Generate an answer using Groq.
+    - For 'chat': answer conversationally without document context.
+    - For 'lookup': use retrieved chunks (zero-chunk guard applies).
+    - For 'aggregation': use SQL result + chunks.
     """
     chunks = state.get("chunks", [])
     query_type = state["query_type"]
     sql_result = state.get("sql_result")
 
-    # ── Zero-chunk guard ──────────────────────────────────────────────
-    if not chunks and not sql_result:
+    # ── Zero-chunk guard for lookup queries ───────────────────────────
+    if query_type == "lookup" and not chunks:
         return {
             **state,
-            "answer": NO_INFO_RESPONSE,
+            "answer": "Yaar, iske baare mein mujhe tumhare documents mein kuch nahi mila 🤔 Try uploading the relevant document, phir properly bata sakta hoon!",
             "sources": [],
         }
 
@@ -243,34 +328,37 @@ async def answer_node(state: VaultState) -> VaultState:
             f"| similarity: {chunk['similarity']:.2f}]\n{chunk['text']}"
         )
 
-    context = "\n\n---\n\n".join(context_parts)
+    context = "\n\n---\n\n".join(context_parts) if context_parts else ""
 
     # ── Build messages with history ───────────────────────────────────
-    messages = [{"role": "system", "content": GROUNDED_SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     for msg in state.get("history", []):
         if msg["role"] in ("user", "assistant"):
             messages.append({"role": msg["role"], "content": msg["content"]})
 
-    messages.append({
-        "role": "user",
-        "content": f"Context:\n{context}\n\nQuestion: {state['question']}",
-    })
+    # Build user message depending on mode
+    if context:
+        user_content = f"Context from documents:\n{context}\n\nQuestion: {state['question']}"
+    else:
+        # Pure chat mode — no document context
+        user_content = state["question"]
+
+    messages.append({"role": "user", "content": user_content})
 
     # ── Call Groq ─────────────────────────────────────────────────────
-    from groq import AsyncGroq
     client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     response = await client.chat.completions.create(
         model=settings.GROQ_MODEL,
         messages=messages,
-        temperature=0.0,
+        temperature=0.7 if query_type == "chat" else 0.1,
         max_tokens=1024,
     )
 
     answer = response.choices[0].message.content.strip()
 
     if state.get("context_truncated"):
-        answer += "\n\n*Note: Some relevant documents were excluded due to context limits.*"
+        answer += "\n\n*Note: Kuch relevant documents context limit ki wajah se exclude ho gaye.*"
 
     # ── Build sources ─────────────────────────────────────────────────
     sources = [
@@ -293,7 +381,6 @@ async def save_memory_node(state: VaultState) -> VaultState:
     user_id = state["user_id"]
 
     try:
-        # Insert user message
         await conn.execute(
             """
             INSERT INTO conversation_messages (session_id, user_id, role, content)
@@ -302,7 +389,6 @@ async def save_memory_node(state: VaultState) -> VaultState:
             session_id, user_id, state["question"],
         )
 
-        # Insert assistant message with sources
         await conn.execute(
             """
             INSERT INTO conversation_messages
@@ -315,11 +401,8 @@ async def save_memory_node(state: VaultState) -> VaultState:
             state["query_type"],
         )
 
-        # Update session metadata
-        title_update = ""
+        short_title = state["question"][:60]
         if not state.get("history"):
-            # First message — set title from question
-            short_title = state["question"][:60]
             await conn.execute(
                 "UPDATE conversation_sessions SET title=$1, message_count=message_count+2, updated_at=NOW() WHERE id=$2::uuid",
                 short_title, session_id,
@@ -338,8 +421,11 @@ async def save_memory_node(state: VaultState) -> VaultState:
 # ── Route function ─────────────────────────────────────────────────────
 
 def route_query(state: VaultState) -> str:
-    """Route to retrieval or SQL aggregation based on query type."""
-    if state["query_type"] == "aggregation":
+    """Route to: chat handler, retrieval, or SQL aggregation."""
+    qt = state["query_type"]
+    if qt == "chat":
+        return "generate_answer"   # skip retrieval entirely for chat
+    if qt == "aggregation":
         return "sql_aggregate"
     return "retrieve"
 
@@ -354,12 +440,13 @@ def build_vault_agent():
     graph.add_node("classify_query", classify_query_node)
     graph.add_node("retrieve", retrieve_node)
     graph.add_node("sql_aggregate", sql_aggregate_node)
-    graph.add_node("generate_answer", answer_node)
+    graph.add_node("generate_answer", generate_answer_node)
     graph.add_node("save_memory", save_memory_node)
 
     graph.set_entry_point("load_memory")
     graph.add_edge("load_memory", "classify_query")
     graph.add_conditional_edges("classify_query", route_query, {
+        "generate_answer": "generate_answer",   # chat shortcut
         "retrieve": "retrieve",
         "sql_aggregate": "sql_aggregate",
     })

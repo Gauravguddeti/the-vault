@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = 1024
 
     # Query tuning
-    MIN_SIMILARITY_SCORE: float = 0.72
+    MIN_SIMILARITY_SCORE: float = 0.60   # lowered to catch more relevant chunks
     MAX_CHUNKS: int = 8
     MAX_CONTEXT_TOKENS: int = 6000
 
