@@ -43,6 +43,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   // Global drag-drop state
   const [globalDragging, setGlobalDragging] = useState(false);
+  // Pre-confirm dialog state (shown before kicking off the expensive ingest pipeline)
+  const [preConfirmFile, setPreConfirmFile] = useState<File | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const dragCounter = useRef(0);
 
@@ -137,6 +139,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     e.preventDefault();
     dragCounter.current = 0;
     setGlobalDragging(false);
+
+    // Don't intercept drops on the upload page — it has its own handler
+    if (pathname.startsWith("/upload")) return;
+
     let file = e.dataTransfer.files[0];
     if (!file) return;
     
@@ -148,10 +154,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       await queueOffline(file);
       return;
     }
-    setModalOpen(true);
-    ingest.reset();
-    ingest.startIngest(file);
-  }, [isOnline, ingest, token]);
+
+    // Show simple Yes/No before kicking off the pipeline
+    setPreConfirmFile(file);
+  }, [isOnline, ingest, token, pathname]);
 
   // Scanner logic
   function openScanner() {
@@ -199,6 +205,46 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       onDragOver={e => e.preventDefault()}
       onDrop={onGlobalDrop}
     >
+      {/* Pre-confirm dialog: "Add to Vault?" */}
+      {preConfirmFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">{preConfirmFile.name}</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{(preConfirmFile.size / 1024).toFixed(0)} KB</p>
+              </div>
+            </div>
+            <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>Add this file to your Vault?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setPreConfirmFile(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                Not now
+              </button>
+              <button
+                onClick={() => {
+                  const f = preConfirmFile;
+                  setPreConfirmFile(null);
+                  setModalOpen(true);
+                  ingest.reset();
+                  ingest.startIngest(f);
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition-all btn-primary">
+                Add to Vault
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Global drag-drop overlay */}
       {globalDragging && (
         <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center pointer-events-none"

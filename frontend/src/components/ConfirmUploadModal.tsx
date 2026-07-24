@@ -54,7 +54,8 @@ export default function ConfirmUploadModal({
   if (!isOpen) return null;
 
   const handleAutoConfirm = () => {
-    // Use AI-detected fields as-is
+    // Works during both analyzing phase (doc=null) and awaiting_confirmation phase (doc=object).
+    // Backend already has the file content — passing empty/partial fields just skips the manual review.
     onConfirm({
       title: document?.original_name || "",
       category: document?.category || "",
@@ -90,6 +91,15 @@ export default function ConfirmUploadModal({
                status === "analyzing" ? "Extracting text and identifying fields..." : 
                "Indexing for search..."}
             </p>
+            {/* Skip waiting — use blank fields and let backend fill them in */}
+            {(status === "analyzing") && (
+              <button
+                onClick={handleAutoConfirm}
+                className="mt-2 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95"
+                style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", color: "#818cf8" }}>
+                Do it yourself! →
+              </button>
+            )}
           </div>
         )}
 
@@ -209,8 +219,8 @@ export default function ConfirmUploadModal({
           </div>
         )}
         
-        {/* Close button during upload/analyze */}
-        {(status === "uploading" || status === "analyzing" || status === "error") && (
+        {/* Close/cancel button visible on ALL non-ready states */}
+        {status !== "ready" && status !== "awaiting_confirmation" && (
           <button onClick={onCancel} className="absolute top-4 right-4 text-[var(--text-muted)] hover:text-white">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18"></line>
