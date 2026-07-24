@@ -1,11 +1,10 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
+import NextAuth from "next-auth";
+import { authConfig } from "./auth.config";
 
-export async function middleware(req: NextRequest) {
-  // Use getToken directly which runs perfectly on Edge runtime
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  const isLoggedIn = !!token;
+const { auth } = NextAuth(authConfig);
+
+export default auth((req) => {
+  const isLoggedIn = !!req.auth;
   const { pathname } = req.nextUrl;
 
   const publicPaths = ["/login", "/register", "/forgot-password"];
@@ -13,13 +12,12 @@ export async function middleware(req: NextRequest) {
   const isApi = pathname.startsWith("/api");
 
   if (!isLoggedIn && !isPublic && !isApi) {
-    return NextResponse.redirect(new URL("/login", req.url));
+    return Response.redirect(new URL("/login", req.url));
   }
   if (isLoggedIn && isPublic) {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    return Response.redirect(new URL("/dashboard", req.url));
   }
-  return NextResponse.next();
-}
+});
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
