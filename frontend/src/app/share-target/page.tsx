@@ -103,6 +103,7 @@ export default function ShareTargetPage() {
             document={ingest.document}
             error={ingest.error}
             onConfirm={ingest.confirmUpload}
+            onAutoConfirm={ingest.triggerAutoConfirm}
             onCancel={() => router.push("/dashboard")}
           />
         )}
