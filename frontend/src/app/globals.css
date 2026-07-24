@@ -3,17 +3,17 @@
 @import "tailwindcss";
 
 :root {
-  --surface-0: #0C120C;
-  --surface-1: #1a201a;
-  --surface-2: #242924;
-  --surface-3: #323832;
-  --border: #6D7275;
-  --border-hover: #C7D6D5;
-  --accent: #C20114;
-  --accent-light: #e62335;
-  --text-primary: #ECEBF3;
-  --text-secondary: #C7D6D5;
-  --text-muted: #6D7275;
+  --surface-0: #202940;
+  --surface-1: #2a344d;
+  --surface-2: #4B4038;
+  --surface-3: #584c42;
+  --border: #9A8678;
+  --border-hover: #CAAA98;
+  --accent: #CAAA98;
+  --accent-light: #e0bea8;
+  --text-primary: #f5f0ec;
+  --text-secondary: #CAAA98;
+  --text-muted: #9A8678;
 }
 
 * { box-sizing: border-box; }
@@ -52,7 +52,7 @@ body {
 /* Bold button */
 .btn-primary {
   background: var(--accent);
-  color: #ECEBF3;
+  color: #202940;
   border: none;
   border-radius: 6px;
   padding: 0.625rem 1.25rem;
@@ -60,18 +60,18 @@ body {
   font-size: 0.9rem;
   cursor: pointer;
   transition: all 0.15s ease;
-  box-shadow: 0 4px 0 #8a000e;
+  box-shadow: 0 4px 0 #9A8678;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 0 #8a000e;
-  background: #d60b1e;
+  box-shadow: 0 6px 0 #9A8678;
+  background: #e0bea8;
 }
 
 .btn-primary:active { 
   transform: translateY(4px);
-  box-shadow: 0 0 0 #8a000e;
+  box-shadow: 0 0 0 #9A8678;
 }
 
 .btn-ghost {
