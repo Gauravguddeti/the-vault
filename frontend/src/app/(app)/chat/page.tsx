@@ -33,6 +33,7 @@ export default function ChatPage() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [chatDragging, setChatDragging] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -50,6 +51,20 @@ export default function ChatPage() {
     });
 
   useEffect(() => { if (session) loadSessions(); }, [session]);
+  
+  // Handle native back button on mobile
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state?.chatId) {
+        setActiveId(e.state.chatId);
+      } else {
+        setActiveId(null);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   // When a document is ready after confirmation, send a notification message into chat
@@ -86,6 +101,7 @@ export default function ChatPage() {
   }
 
   async function selectSession(sid: string) {
+    window.history.pushState({ chatId: sid }, "", "?chat=" + sid);
     setActiveId(sid);
     await loadMessages(sid);
   }
@@ -95,6 +111,7 @@ export default function ChatPage() {
     if (r.ok) {
       const s = await r.json();
       setSessions(prev => [s, ...prev]);
+      window.history.pushState({ chatId: s.id }, "", "?chat=" + s.id);
       setActiveId(s.id);
       setMessages([]);
     }
@@ -102,9 +119,15 @@ export default function ChatPage() {
 
   async function deleteSession(sid: string, e: React.MouseEvent) {
     e.stopPropagation();
+    setDeletingId(sid);
     await api(`/api/conversations/${sid}`, { method: "DELETE" });
     setSessions(prev => prev.filter(s => s.id !== sid));
-    if (activeId === sid) { setActiveId(null); setMessages([]); }
+    setDeletingId(null);
+    if (activeId === sid) { 
+      setActiveId(null); 
+      setMessages([]); 
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }
 
   async function sendMessage(e?: React.FormEvent) {
@@ -233,7 +256,7 @@ export default function ChatPage() {
   }, [activeId]);
 
   return (
-    <div className="flex h-full" style={{ height: "calc(100vh - 0px)" }}>
+    <div className="flex h-full w-full">
       {/* Sessions sidebar */}
       <div className={`flex-shrink-0 flex-col ${activeId ? 'hidden md:flex md:w-64' : 'flex w-full md:w-64'}`}
         style={{ borderRight: "1px solid var(--border)", background: "var(--surface-1)" }}>
@@ -264,12 +287,17 @@ export default function ChatPage() {
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>{s.message_count} messages</p>
               </div>
               <button onClick={e => deleteSession(s.id, e)}
-                className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 rounded" style={{ color: "var(--text-muted)" }}
+                disabled={deletingId === s.id}
+                className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-2 -mr-2 rounded transition-colors" style={{ color: "var(--text-muted)" }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "#f87171"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                </svg>
+                {deletingId === s.id ? (
+                  <div className="w-3 h-3 border-2 border-[var(--text-muted)] border-t-[var(--accent)] rounded-full animate-spin" />
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  </svg>
+                )}
               </button>
             </div>
           ))}
@@ -309,7 +337,10 @@ export default function ChatPage() {
             {/* Mobile Back Button */}
             <div className="md:hidden flex items-center px-4 py-2 border-b border-white/5" style={{ background: "var(--surface-1)" }}>
               <button 
-                onClick={() => setActiveId(null)}
+                onClick={() => {
+                  setActiveId(null);
+                  window.history.replaceState({}, "", window.location.pathname);
+                }}
                 className="flex items-center gap-1 text-sm font-medium transition-colors"
                 style={{ color: "var(--text-secondary)" }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
