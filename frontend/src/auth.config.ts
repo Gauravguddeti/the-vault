@@ -17,7 +17,7 @@ export const authConfig = {
         const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET);
         token.accessToken = await new SignJWT({ userId: user.id, email: user.email })
           .setProtectedHeader({ alg: "HS256" })
-          .setExpirationTime("24h")
+          .setExpirationTime("30d")
           .sign(secret);
       }
       return token;

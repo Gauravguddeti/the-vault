@@ -53,8 +53,8 @@ export default function ChatPage() {
 
   const ingest = useDocumentIngest(token);
 
-  const api = (path: string, opts: RequestInit = {}) =>
-    fetch(`${BACKEND}${path}`, {
+  const api = async (path: string, opts: RequestInit = {}) => {
+    const res = await fetch(`${BACKEND}${path}`, {
       ...opts,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -62,6 +62,11 @@ export default function ChatPage() {
         ...(opts.headers || {}),
       },
     });
+    if (res.status === 401) {
+      import("next-auth/react").then((m) => m.signOut({ callbackUrl: "/login" }));
+    }
+    return res;
+  };
 
   
   // Handle native back button on mobile

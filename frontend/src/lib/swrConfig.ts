@@ -14,11 +14,17 @@ const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
  *     ([url, tok]) => swrFetch(url, tok)
  *   );
  */
+import { signOut } from "next-auth/react";
+
 export async function swrFetch<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${BACKEND}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
+    if (res.status === 401) {
+      // Token expired or invalid → force logout to clear bad session
+      signOut({ callbackUrl: "/login" });
+    }
     const err = new Error(`Fetch failed: ${res.status}`);
     (err as any).status = res.status;
     throw err;
