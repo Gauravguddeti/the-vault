@@ -35,6 +35,7 @@ export default function ChatPage() {
   const [chatDragging, setChatDragging] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -262,17 +263,21 @@ export default function ChatPage() {
   return (
     <div className="flex h-full w-full">
       {/* Sessions sidebar */}
-      <div className={`flex-shrink-0 flex-col ${activeId ? 'hidden md:flex md:w-64' : 'flex w-full md:w-64'}`}
-        style={{ borderRight: "1px solid var(--border)", background: "var(--surface-1)" }}>
-        <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
-          <button onClick={newChat} className="btn-primary w-full flex items-center justify-center gap-2 text-sm">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <div className={`flex flex-col flex-shrink-0 transition-all duration-300 ${sidebarOpen ? 'w-full md:w-64' : 'w-0 overflow-hidden'} ${activeId ? 'hidden md:flex' : 'flex'}`}
+        style={{ background: "var(--surface-0)", borderRight: sidebarOpen ? "1px solid var(--border)" : "none" }}>
+        <div className="p-3 whitespace-nowrap min-w-[16rem]">
+          <button onClick={newChat}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all"
+            style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", color: "#818cf8" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(99,102,241,0.25)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "rgba(99,102,241,0.15)"; (e.currentTarget as HTMLElement).style.transform = "none"; }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             New chat
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto py-2 px-2 space-y-1">
+        <div className="flex-1 overflow-y-auto py-2 px-2 space-y-1 min-w-[16rem]">
           {loadingSessions ? (
             <div className="flex justify-center py-8"><div className="spinner" /></div>
           ) : sessions.length === 0 ? (
@@ -309,10 +314,28 @@ export default function ChatPage() {
       </div>
 
       {/* Chat area */}
-      <div className={`flex-col min-w-0 flex-1 ${!activeId ? 'hidden md:flex' : 'flex'}`}
+      <div className={`relative flex-col min-w-0 flex-1 ${!activeId ? 'hidden md:flex' : 'flex'}`}
         onDragOver={e => { e.preventDefault(); if (activeId) setChatDragging(true); }}
         onDragLeave={() => setChatDragging(false)}
         onDrop={onChatDrop}>
+        
+        {/* Desktop Sidebar Toggle Button */}
+        <button 
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="hidden md:flex absolute top-4 left-4 z-40 items-center justify-center w-8 h-8 rounded-lg shadow-sm transition-all"
+          style={{ background: "var(--surface-1)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+          title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+        >
+          {sidebarOpen ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          )}
+        </button>
 
         {/* Drop overlay */}
         {chatDragging && (

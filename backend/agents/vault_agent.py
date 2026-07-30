@@ -142,7 +142,7 @@ async def load_memory_node(state: VaultState) -> VaultState:
     # Fetch lightweight document index
     docs = await conn.fetch(
         """
-        SELECT d.original_name, d.created_at, e.category 
+        SELECT d.original_name, d.created_at, e.category, e.vendor, e.amount, e.currency, e.raw_json
         FROM documents d
         LEFT JOIN extracted_fields e ON d.id = e.document_id
         WHERE d.status = 'ready'
@@ -154,7 +154,41 @@ async def load_memory_node(state: VaultState) -> VaultState:
     for d in docs:
         cat = d['category'] or 'Uncategorized'
         date_str = d['created_at'].strftime("%Y-%m-%d %H:%M") if d['created_at'] else 'Unknown date'
-        doc_index_lines.append(f"- {d['original_name']} (Uploaded: {date_str}, Category: {cat})")
+        vendor = d['vendor'] or ''
+        amount = d['amount']
+        currency = d['currency'] or ''
+        
+        line = f"- {d['original_name']} (Uploaded: {date_str}, Category: {cat}"
+        if vendor:
+            line += f", Vendor: {vendor}"
+        if amount is not None:
+            line += f", Total: {currency} {amount}"
+        
+        # Embed line items from raw_json for invoice/receipt documents
+        try:
+            raw = d['raw_json']
+            if raw:
+                import json as _json
+                rj = _json.loads(raw) if isinstance(raw, str) else raw
+                items = rj.get('items', [])
+                if items:
+                    item_names = [i.get('name', '') for i in items if i.get('name')]
+                    if item_names:
+                        line += f", Items purchased: [{', '.join(item_names[:10])}]"
+                buyer = rj.get('buyer')
+                if buyer:
+                    line += f", Buyer: {buyer}"
+                doc_type = rj.get('document_type')
+                if doc_type:
+                    line += f", Type: {doc_type}"
+                invoice_no = rj.get('invoice_number')
+                if invoice_no:
+                    line += f", Invoice#: {invoice_no}"
+        except Exception:
+            pass
+        
+        line += ")"
+        doc_index_lines.append(line)
     
     document_index = "\n".join(doc_index_lines) if doc_index_lines else "No documents uploaded yet."
 
@@ -443,7 +477,7 @@ async def generate_answer_node(state: VaultState) -> VaultState:
         model=settings.GROQ_MODEL,
         messages=messages,
         temperature=0.7 if query_type == "chat" else 0.1,
-        max_tokens=1024,
+        max_tokens=2048,
     )
 
     answer = response.choices[0].message.content.strip()
