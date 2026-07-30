@@ -536,19 +536,37 @@ export default function ChatPage() {
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {msg.sources.map((s: any, j: number) => (
                           <div key={j} className="relative group/src">
-                            <span
-                              className="text-xs px-2.5 py-1 rounded-full cursor-default"
-                              style={{ background: "var(--surface-3)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
-                              📄 {s.document_name.length > 20 ? s.document_name.slice(0, 18) + "…" : s.document_name}
-                            </span>
-                            {/* Hover tooltip */}
-                            <div className="absolute bottom-full left-0 mb-1.5 hidden group-hover/src:block z-20 animate-scale-in">
-                              <div className="text-xs px-3 py-2 rounded-xl whitespace-nowrap"
-                                style={{ background: "var(--surface-1)", border: "1px solid var(--border)", boxShadow: "0 4px 16px rgba(0,0,0,0.3)", color: "var(--text-secondary)" }}>
-                                <p className="font-medium" style={{ color: "var(--text-primary)" }}>{s.document_name}</p>
-                                <p>Chunk #{s.chunk_index} · {(s.similarity * 100).toFixed(0)}% match</p>
-                              </div>
-                            </div>
+                            {s.url ? (
+                              /* Web search source — clickable external link */
+                              <a
+                                href={s.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs px-2.5 py-1 rounded-full inline-flex items-center gap-1 transition-colors"
+                                style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.25)" }}
+                                title={s.url}
+                              >
+                                🌐 {s.document_name && s.document_name.length > 20 ? s.document_name.slice(0, 18) + "…" : (s.document_name || "Web")}
+                                <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 3H2a1 1 0 00-1 1v6a1 1 0 001 1h6a1 1 0 001-1V8m-5-1l6-6m0 0h-3m3 0v3"/></svg>
+                              </a>
+                            ) : (
+                              /* Internal document source — hover tooltip */
+                              <>
+                                <span
+                                  className="text-xs px-2.5 py-1 rounded-full cursor-default"
+                                  style={{ background: "var(--surface-3)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                                  📄 {s.document_name.length > 20 ? s.document_name.slice(0, 18) + "…" : s.document_name}
+                                </span>
+                                {/* Hover tooltip */}
+                                <div className="absolute bottom-full left-0 mb-1.5 hidden group-hover/src:block z-20 animate-scale-in">
+                                  <div className="text-xs px-3 py-2 rounded-xl whitespace-nowrap"
+                                    style={{ background: "var(--surface-1)", border: "1px solid var(--border)", boxShadow: "0 4px 16px rgba(0,0,0,0.3)", color: "var(--text-secondary)" }}>
+                                    <p className="font-medium" style={{ color: "var(--text-primary)" }}>{s.document_name}</p>
+                                    <p>Chunk #{s.chunk_index} · {(s.similarity * 100).toFixed(0)}% match</p>
+                                  </div>
+                                </div>
+                              </>
+                            )}
                           </div>
                         ))}
                       </div>

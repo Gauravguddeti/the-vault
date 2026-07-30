@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
+    # Web Search
+    TAVILY_API_KEY: str = ""
+
     # OCR
     OCR_PROVIDER: str = "mistral"          # mistral | tesseract
     MISTRAL_API_KEY: str = ""

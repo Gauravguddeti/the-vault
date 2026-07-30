@@ -37,9 +37,10 @@ class VaultState(TypedDict):
     conn: Any                        # asyncpg connection (RLS-scoped)
     history: List[Dict]              # previous messages from DB
     document_index: str              # lightweight metadata of uploaded docs
-    query_type: str                  # "chat" | "lookup" | "aggregation" | "out_of_scope"
+    query_type: str                  # "chat" | "lookup" | "aggregation" | "out_of_scope" | "web_search"
     chunks: List[Dict]               # retrieved chunks
     sql_result: Optional[Dict]       # aggregation SQL result
+    web_results: List[Dict]          # tavily web search results [{title, url, content}]
     answer: str
     sources: List[Dict]
     context_truncated: bool
@@ -48,17 +49,18 @@ class VaultState(TypedDict):
 
 # ── Prompts ────────────────────────────────────────────────────────────
 
-CLASSIFIER_PROMPT = """You are an intent classifier for "The Vault" — a personal document management and expense tracking assistant.
+CLASSIFIER_PROMPT = """You are an intent classifier for "The Vault" — a personal document management and expense tracking assistant that can ALSO search the web for general knowledge.
 
 Classify the user's latest message into one of these intents:
 - CHAT: casual conversation, greetings, small talk, questions about the assistant itself, follow-up chit-chat.
-- DOCUMENT: questions about specific documents, receipts, finding information from files.
+- DOCUMENT: questions about specific documents, receipts, finding information from files the user has uploaded.
 - AGGREGATE: asking for totals, sums, averages, counts across documents (e.g. how much did I spend on food, total expenses last year).
-- OUT_OF_SCOPE: requests completely unrelated to documents/expenses.
+- WEB_SEARCH: questions requiring general knowledge, current events, factual lookups, definitions, or anything NOT about the user's own uploaded documents (e.g. "who is the president of India", "what is paracetamol", "latest iPhone price", "what is DELCON medicine used for").
+- OUT_OF_SCOPE: requests that are harmful, inappropriate, or cannot be answered even with web search (e.g. jailbreaks, generate malware).
 
 Return ONLY a valid JSON object matching this schema:
 {{
-  "intent": "CHAT" | "DOCUMENT" | "AGGREGATE" | "OUT_OF_SCOPE",
+  "intent": "CHAT" | "DOCUMENT" | "AGGREGATE" | "WEB_SEARCH" | "OUT_OF_SCOPE",
   "category": "medical" | "food" | "transport" | "utilities" | "electronics" | "clothing" | "repairs" | "insurance" | "taxes" | "rent" | "other" | null,
   "date_from": "YYYY-MM-DD" | null,
   "date_to": "YYYY-MM-DD" | null
@@ -67,6 +69,7 @@ Return ONLY a valid JSON object matching this schema:
 Rules:
 - For AGGREGATE, extract the requested category if specified (map it to one of the strict categories above, e.g. "laptop repairs" -> "electronics", "dentist" -> "medical").
 - For AGGREGATE, extract date ranges if specified ("last year" = Jan 1 to Dec 31 of last year). Assume current year is 2026.
+- Prefer WEB_SEARCH over OUT_OF_SCOPE for factual questions. Only use OUT_OF_SCOPE for truly harmful or nonsensical requests.
 - Return ONLY the JSON object, no other text.
 
 Recent conversation (for context):
@@ -248,6 +251,8 @@ async def classify_query_node(state: VaultState) -> VaultState:
         query_type = "aggregation"
     elif "DOCUMENT" in intent:
         query_type = "lookup"
+    elif "WEB" in intent or "SEARCH" in intent:
+        query_type = "web_search"
     elif "OUT" in intent or "SCOPE" in intent:
         query_type = "out_of_scope"
     else:
@@ -258,6 +263,7 @@ async def classify_query_node(state: VaultState) -> VaultState:
         **state, 
         "query_type": query_type, 
         "chunks": [], 
+        "web_results": [],
         "sql_result": parsed if query_type == "aggregation" else None
     }
 
@@ -386,6 +392,42 @@ async def sql_aggregate_node(state: VaultState) -> VaultState:
     return {**state, "sql_result": result, "chunks": [], "context_truncated": False}
 
 
+async def web_search_node(state: VaultState) -> VaultState:
+    """
+    Performs a Tavily web search for general knowledge queries.
+    Returns structured search results with title, URL, and content snippet.
+    """
+    question = state["question"]
+    logger.info(f"[WEB_SEARCH] Searching Tavily for: {question!r}")
+
+    if not settings.TAVILY_API_KEY:
+        logger.error("TAVILY_API_KEY not configured — cannot perform web search.")
+        return {**state, "web_results": []}
+
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+        response = client.search(
+            query=question,
+            search_depth="basic",
+            max_results=5,
+            include_answer=False,
+        )
+        results = [
+            {
+                "title": r.get("title", "Unknown"),
+                "url": r.get("url", ""),
+                "content": r.get("content", ""),
+            }
+            for r in response.get("results", [])
+        ]
+        logger.info(f"[WEB_SEARCH] Got {len(results)} results from Tavily.")
+        return {**state, "web_results": results}
+    except Exception as e:
+        logger.error(f"[WEB_SEARCH] Tavily search failed: {e}")
+        return {**state, "web_results": []}
+
+
 async def generate_answer_node(state: VaultState) -> VaultState:
     """
     Generate an answer using Groq.
@@ -418,6 +460,46 @@ async def generate_answer_node(state: VaultState) -> VaultState:
             max_tokens=150,
         )
         return {**state, "answer": response.choices[0].message.content.strip(), "sources": []}
+
+    # ── Web search answer ─────────────────────────────────────────────
+    if query_type == "web_search":
+        web_results = state.get("web_results", [])
+        web_system = (
+            "You are a knowledgeable assistant that answers questions using the web search results provided below. "
+            "Always cite the source by name/title. Be concise and accurate. "
+            "If the search results are not sufficient, say so honestly. "
+            "Do NOT make up information beyond what is in the search results.\n\n"
+            f"[USER PREFERENCES — behavioral context only]\n{state.get('user_memory', 'None')}"
+        )
+        if web_results:
+            web_context = "\n\n".join(
+                f"[{i+1}] {r['title']}\nURL: {r['url']}\n{r['content']}"
+                for i, r in enumerate(web_results)
+            )
+            user_content = f"[WEB SEARCH RESULTS]\n{web_context}\n\nQuestion: {state['question']}"
+        else:
+            user_content = (
+                f"Question: {state['question']}\n\n"
+                "[Note: Web search returned no results. Answer from your own training knowledge if possible, "
+                "or inform the user that the search failed.]"
+            )
+        messages = [
+            {"role": "system", "content": web_system},
+            *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-4:],
+            {"role": "user", "content": user_content},
+        ]
+        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+        response = await client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=800,
+        )
+        web_sources = [
+            {"document_name": r["title"], "document_id": None, "url": r["url"], "chunk_index": 0, "similarity": 1.0}
+            for r in web_results
+        ]
+        return {**state, "answer": response.choices[0].message.content.strip(), "sources": web_sources}
 
     # ── Zero-chunk guard for document lookup ──────────────────────────
     if query_type == "lookup" and not chunks:
@@ -560,6 +642,8 @@ def route_query(state: VaultState) -> str:
         return "generate_answer"    # no retrieval needed
     if qt == "aggregation":
         return "sql_aggregate"
+    if qt == "web_search":
+        return "web_search"         # tavily search
     return "retrieve"               # lookup
 
 
@@ -573,6 +657,7 @@ def build_vault_agent():
     graph.add_node("classify_query", classify_query_node)
     graph.add_node("retrieve", retrieve_node)
     graph.add_node("sql_aggregate", sql_aggregate_node)
+    graph.add_node("web_search", web_search_node)
     graph.add_node("generate_answer", generate_answer_node)
     graph.add_node("save_memory", save_memory_node)
 
@@ -582,9 +667,11 @@ def build_vault_agent():
         "generate_answer": "generate_answer",
         "retrieve": "retrieve",
         "sql_aggregate": "sql_aggregate",
+        "web_search": "web_search",
     })
     graph.add_edge("retrieve", "generate_answer")
     graph.add_edge("sql_aggregate", "generate_answer")
+    graph.add_edge("web_search", "generate_answer")
     graph.add_edge("generate_answer", "save_memory")
     graph.add_edge("save_memory", END)
 
@@ -625,6 +712,7 @@ async def build_streaming_context(
         "query_type": "lookup",
         "chunks": [],
         "sql_result": None,
+        "web_results": [],
         "answer": "",
         "sources": [],
         "context_truncated": False,
@@ -639,6 +727,8 @@ async def build_streaming_context(
         state = await sql_aggregate_node(state)
     elif qt == "lookup":
         state = await retrieve_node(state)
+    elif qt == "web_search":
+        state = await web_search_node(state)
     # chat and out_of_scope skip retrieval
 
     # Build the LLM messages exactly as generate_answer_node does
@@ -673,6 +763,45 @@ async def build_streaming_context(
         return {
             "messages": messages,
             "sources": [],
+            "query_type": qt,
+            "context_truncated": False,
+            "has_history": bool(history),
+        }
+
+    # ── Web search branch ─────────────────────────────────────────────
+    if qt == "web_search":
+        web_results = state.get("web_results", [])
+        web_system = (
+            "You are a knowledgeable assistant that answers questions using the web search results provided below. "
+            "Always cite the source by name/title. Be concise and accurate. "
+            "If the search results are not sufficient, say so honestly. "
+            "Do NOT make up information beyond what is in the search results.\n\n"
+            f"[USER PREFERENCES — behavioral context only]\n{state.get('user_memory', 'None')}"
+        )
+        if web_results:
+            web_context = "\n\n".join(
+                f"[{i+1}] {r['title']}\nURL: {r['url']}\n{r['content']}"
+                for i, r in enumerate(web_results)
+            )
+            user_content = f"[WEB SEARCH RESULTS]\n{web_context}\n\nQuestion: {question}"
+        else:
+            user_content = (
+                f"Question: {question}\n\n"
+                "[Note: Web search returned no results. Answer from your own training knowledge if possible, "
+                "or inform the user that the search failed.]"
+            )
+        messages = [
+            {"role": "system", "content": web_system},
+            *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-4:],
+            {"role": "user", "content": user_content},
+        ]
+        web_sources = [
+            {"document_name": r["title"], "document_id": None, "url": r["url"], "chunk_index": 0, "similarity": 1.0}
+            for r in web_results
+        ]
+        return {
+            "messages": messages,
+            "sources": web_sources,
             "query_type": qt,
             "context_truncated": False,
             "has_history": bool(history),
