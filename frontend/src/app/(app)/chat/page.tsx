@@ -45,7 +45,7 @@ export default function ChatPage() {
   const { data: sessions = [], isLoading: loadingSessions, mutate: mutateSessions } = useSWR<Session[]>(
     token ? ["/api/conversations", token] : null,
     ([path, tok]: [string, string]) => swrFetch<Session[]>(path, tok),
-    { keepPreviousData: true, revalidateOnFocus: true }
+    { keepPreviousData: true }
   );
   const messagesEnd = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

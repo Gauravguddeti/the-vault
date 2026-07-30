@@ -32,10 +32,10 @@ export async function swrFetch<T>(path: string, token: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** SWR global config — revalidate on focus, dedupe within 5s */
+/** SWR global config — disable aggressive refetching for a native app feel */
 export const swrConfig = {
-  revalidateOnFocus: true,        // silently refresh when user switches back to tab
-  revalidateOnReconnect: true,    // refresh on network reconnect
+  revalidateOnFocus: false,       // don't refresh when user switches windows/tabs
+  revalidateOnReconnect: true,    // refresh only on network reconnect
   dedupingInterval: 5000,         // deduplicate identical fetches within 5s
   errorRetryCount: 2,
   keepPreviousData: true,         // show stale data while revalidating (no blank flash)
