@@ -316,6 +316,27 @@ export default function ChatPage() {
     if (file && activeId) handleFileSelect(file);
   }, [activeId]);
 
+  // Fetch documents for dynamic prompt chips
+  const { data: docs = [] } = useSWR<any[]>(
+    token ? ["/api/documents", token] : null,
+    ([path, tok]: [string, string]) => swrFetch<any[]>(path, tok),
+    { keepPreviousData: true }
+  );
+
+  const defaultPrompts = [
+    "How much did I spend on electronics?",
+    "What did I buy from Kamal Novelties?",
+    "Show me my most recent receipt",
+  ];
+
+  const dynamicPrompts = docs.length > 0
+    ? [
+        `Summarize the contents of ${docs[0]?.original_name}`,
+        docs[1] ? `What is the total amount in ${docs[1].original_name}?` : "How much did I spend on electronics?",
+        docs[2] ? `Extract the key details from ${docs[2].original_name}` : "Show me my most recent receipt",
+      ]
+    : defaultPrompts;
+
   return (
     <div className="flex h-full w-full">
       {/* Sessions sidebar */}
@@ -418,11 +439,7 @@ export default function ChatPage() {
             </p>
             {/* Example prompt chips */}
             <div className="flex flex-col gap-2 mb-6 w-full max-w-sm">
-              {[
-                "How much did I spend on electronics?",
-                "What did I buy from Kamal Novelties?",
-                "Show me my most recent receipt",
-              ].map(prompt => (
+              {dynamicPrompts.map(prompt => (
                 <button
                   key={prompt}
                   onClick={async () => {

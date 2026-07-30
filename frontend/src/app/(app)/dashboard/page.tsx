@@ -75,45 +75,59 @@ export default function DashboardPage() {
   }, [mutate]);
 
   async function handleDelete(id: string, name: string) {
-    // Optimistic UI: start exit animation immediately
+    // Start exit animation immediately
     setExitingIds(prev => new Set(prev).add(id));
-    // Optimistically remove from cache
-    mutate(docs.filter(d => d.id !== id), false);
 
-    setTimeout(async () => {
-      try {
-        await fetch(`${BACKEND}/api/documents/${id}`, {
+    mutate(
+      async (currentDocs = []) => {
+        // Wait for animation
+        await new Promise(r => setTimeout(r, 280));
+        const res = await fetch(`${BACKEND}/api/documents/${id}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
-        // Revalidate from server
-        mutate();
-        setExitingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+        if (!res.ok) throw new Error("Delete failed");
+        
         toast.success(`"${name}" deleted`);
-      } catch {
-        // Revert on error
-        mutate();
         setExitingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
-        toast.error("Delete failed — please try again");
+        return currentDocs.filter(d => d.id !== id);
+      },
+      {
+        optimisticData: (currentDocs = []) => currentDocs.filter(d => d.id !== id),
+        rollbackOnError: true,
+        revalidate: false,
       }
-    }, 280);
+    ).catch(() => {
+      setExitingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+      toast.error("Delete failed — please try again");
+    });
   }
 
   async function handleRename(id: string) {
     if (!editName.trim()) return;
-    try {
-      await fetch(`${BACKEND}/api/documents/${id}`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ original_name: editName }),
-      });
-      // Optimistically update cache
-      mutate(docs.map(d => d.id === id ? { ...d, original_name: editName } : d), false);
-      setEditId(null);
-      toast.success("Renamed successfully");
-    } catch {
+    const newName = editName.trim();
+    setEditId(null); // Close input immediately
+
+    mutate(
+      async (currentDocs = []) => {
+        const res = await fetch(`${BACKEND}/api/documents/${id}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ original_name: newName }),
+        });
+        if (!res.ok) throw new Error("Rename failed");
+        
+        toast.success("Renamed successfully");
+        return currentDocs.map(d => d.id === id ? { ...d, original_name: newName } : d);
+      },
+      {
+        optimisticData: (currentDocs = []) => currentDocs.map(d => d.id === id ? { ...d, original_name: newName } : d),
+        rollbackOnError: true,
+        revalidate: false,
+      }
+    ).catch(() => {
       toast.error("Rename failed");
-    }
+    });
   }
 
   // Only show skeletons on first load — not on tab switch revisits
