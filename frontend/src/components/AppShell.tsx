@@ -351,7 +351,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {session?.user?.email}
             </p>
           </div>
-          <button onClick={() => signOut({ callbackUrl: "/login" })}
+          <button onClick={() => {
+            // Clear ALL browser-side storage before signing out to prevent
+            // stale tokens or SWR cache from leaking into the next account's session
+            try { localStorage.clear(); } catch {}
+            try { sessionStorage.clear(); } catch {}
+            signOut({ callbackUrl: "/login" });
+          }}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm transition-all"
             style={{ color: "var(--text-muted)" }}
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.08)"; }}
