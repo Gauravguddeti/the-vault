@@ -68,6 +68,43 @@ async def retry_failed_documents():
             except Exception as e:
                 logger.error(f"[CRON] Failed to retry {doc_id}: {e}")
 
+async def extract_all_user_memories():
+    """
+    Find recent conversations and extract memory.
+    """
+    logger.info("[CRON] Checking for conversations to extract memory...")
+    from services.memory_extractor import run_memory_extraction
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Superuser context
+        await conn.execute("SET LOCAL app.current_user_id = '00000000-0000-0000-0000-000000000000'")
+        await conn.execute("SET LOCAL row_security = off")
+        
+        # We only want to process sessions that have been updated recently, 
+        # and we can use updated_at to track if we need to process them.
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+        
+        # Get up to 10 recently active sessions
+        sessions = await conn.fetch(
+            """
+            SELECT id::text, user_id::text
+            FROM conversation_sessions
+            WHERE updated_at > $1 AND message_count > 0
+            ORDER BY updated_at DESC
+            LIMIT 10
+            """,
+            cutoff
+        )
+        
+        for sess in sessions:
+            # Fetch conversation text
+            messages = await conn.fetch(
+                "SELECT role, content FROM conversation_messages WHERE session_id = $1::uuid ORDER BY created_at ASC",
+                sess["id"]
+            )
+            conv_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
+            if conv_text:
+                await run_memory_extraction(sess["user_id"], sess["id"], conv_text)
 
 def register_cron_jobs():
     """Register all cron jobs with APScheduler."""
@@ -81,4 +118,13 @@ def register_cron_jobs():
         max_instances=1,
         coalesce=True,
     )
-    logger.info("[CRON] Jobs registered: retry_failed_documents (every 15 min)")
+    scheduler.add_job(
+        extract_all_user_memories,
+        trigger="interval",
+        minutes=30,
+        id="extract_user_memories",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info("[CRON] Jobs registered: retry_failed_documents (15m), extract_user_memories (30m)")

@@ -163,6 +163,29 @@ CREATE POLICY audit_logs_user_isolation ON audit_logs
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 
+-- ── User Memory ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_memory (
+    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content       TEXT NOT NULL,
+    category      TEXT NOT NULL CHECK (category IN ('preference', 'pattern', 'context')),
+    source_conversation_id UUID REFERENCES conversation_sessions(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE user_memory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_memory FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY memory_user_isolation ON user_memory
+    USING (user_id = current_setting('app.current_user_id', true)::uuid);
+
+CREATE INDEX IF NOT EXISTS idx_user_memory_user_id ON user_memory(user_id);
+
+CREATE OR REPLACE TRIGGER set_user_memory_updated_at
+    BEFORE UPDATE ON user_memory
+    FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+
 -- ── Conversation Sessions ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS conversation_sessions (
     id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

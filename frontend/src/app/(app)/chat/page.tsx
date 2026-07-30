@@ -144,10 +144,11 @@ export default function ChatPage() {
     toast.success("Conversation deleted");
   }
 
-  async function sendMessage(e?: React.FormEvent, overrideQ?: string) {
+  async function sendMessage(e?: React.FormEvent, overrideQ?: string, explicitChatId?: string) {
     e?.preventDefault();
     const q = overrideQ ?? question.trim();
-    if (!q || !activeId || loading) return;
+    const targetId = explicitChatId ?? activeId;
+    if (!q || !targetId || loading) return;
     setQuestion("");
 
     const tempUser: Message = {
@@ -174,7 +175,7 @@ export default function ChatPage() {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ question: q, session_id: activeId }),
+          body: JSON.stringify({ question: q, session_id: targetId }),
           signal: abort.signal,
         }
       );
@@ -225,7 +226,7 @@ export default function ChatPage() {
 
       mutateSessions(
         sessions.map(s =>
-          s.id === activeId
+          s.id === targetId
             ? { ...s, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
             : s
         ),
@@ -450,8 +451,8 @@ export default function ChatPage() {
                       window.history.pushState({ chatId: s.id }, "", "?chat=" + s.id);
                       setActiveId(s.id);
                       setMessages([]);
-                      // Brief delay so state settles, then send
-                      setTimeout(() => sendMessage(undefined, prompt), 50);
+                      // Wait for next tick so activeId is technically set in UI, but pass explicit args anyway
+                      setTimeout(() => sendMessage(undefined, prompt, s.id), 0);
                     }
                   }}
                   className="text-left text-sm px-4 py-2.5 rounded-xl transition-all btn-press"

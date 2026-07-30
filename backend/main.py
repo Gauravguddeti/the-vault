@@ -8,11 +8,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from db.connection import init_db
-from routers import documents, query, conversations, health
+from routers import documents, query, conversations, health, memory
 from services.scheduler import start_scheduler, stop_scheduler
 from services.cron import register_cron_jobs
 from core.config import settings
-
 
 from core.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
 
@@ -52,3 +51,4 @@ app.include_router(health.router)
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
+app.include_router(memory.router, prefix="/api/memory", tags=["memory"])

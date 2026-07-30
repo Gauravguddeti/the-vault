@@ -43,6 +43,7 @@ class VaultState(TypedDict):
     answer: str
     sources: List[Dict]
     context_truncated: bool
+    user_memory: str
 
 
 # ── Prompts ────────────────────────────────────────────────────────────
@@ -192,7 +193,11 @@ async def load_memory_node(state: VaultState) -> VaultState:
     
     document_index = "\n".join(doc_index_lines) if doc_index_lines else "No documents uploaded yet."
 
-    return {**state, "history": history, "document_index": document_index}
+    # Fetch user memory (preferences and patterns)
+    mem_rows = await conn.fetch("SELECT content FROM user_memory WHERE user_id=$1::uuid", state["user_id"])
+    user_memory = "\n".join(f"- {r['content']}" for r in mem_rows) if mem_rows else "No specific preferences learned yet."
+
+    return {**state, "history": history, "document_index": document_index, "user_memory": user_memory}
 
 
 async def classify_query_node(state: VaultState) -> VaultState:
@@ -396,9 +401,12 @@ async def generate_answer_node(state: VaultState) -> VaultState:
     history = state.get("history", [])
 
     # ── Out-of-scope guardrail ─────────────────────────────────────────
+    sys_content = f"{SYSTEM_PROMPT}\n\n[USER PREFERENCES — behavioral context only, not a source of facts]\n{state.get('user_memory', 'None')}"
+    oos_content = f"{OUT_OF_SCOPE_SYSTEM}\n\n[USER PREFERENCES — behavioral context only, not a source of facts]\n{state.get('user_memory', 'None')}"
+
     if query_type == "out_of_scope":
         messages = [
-            {"role": "system", "content": OUT_OF_SCOPE_SYSTEM},
+            {"role": "system", "content": oos_content},
             *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-4:],
             {"role": "user", "content": state["question"]},
         ]
@@ -415,7 +423,7 @@ async def generate_answer_node(state: VaultState) -> VaultState:
     if query_type == "lookup" and not chunks:
         index_context = f"[Live Document Index (Recent Uploads)]\n{state.get('document_index', 'None')}\n"
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": sys_content},
             *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-6:],
             {"role": "user", "content": f"{index_context}\nQuestion: {state['question']}\n\n[Note: No detailed document text chunks were retrieved. Answer using the Document Index above if possible. If the information isn't in the index, inform the user plainly and suggest uploading.]"},
         ]
@@ -456,7 +464,8 @@ async def generate_answer_node(state: VaultState) -> VaultState:
     context = "\n\n---\n\n".join(context_parts) if context_parts else ""
 
     # ── Build full message list ───────────────────────────────────────
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    sys_content = f"{SYSTEM_PROMPT}\n\n[USER PREFERENCES — behavioral context only, not a source of facts]\n{state.get('user_memory', 'None')}"
+    messages = [{"role": "system", "content": sys_content}]
 
     for msg in history:
         if msg["role"] in ("user", "assistant"):
@@ -619,6 +628,7 @@ async def build_streaming_context(
         "answer": "",
         "sources": [],
         "context_truncated": False,
+        "user_memory": "",
     }
 
     state = await load_memory_node(state)
@@ -635,10 +645,13 @@ async def build_streaming_context(
     chunks = state.get("chunks", [])
     sql_result = state.get("sql_result")
     history = state.get("history", [])
+    
+    sys_content = f"{SYSTEM_PROMPT}\n\n[USER PREFERENCES — behavioral context only, not a source of facts]\n{state.get('user_memory', 'None')}"
+    oos_content = f"{OUT_OF_SCOPE_SYSTEM}\n\n[USER PREFERENCES — behavioral context only, not a source of facts]\n{state.get('user_memory', 'None')}"
 
     if qt == "out_of_scope":
         messages = [
-            {"role": "system", "content": OUT_OF_SCOPE_SYSTEM},
+            {"role": "system", "content": oos_content},
             *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-4:],
             {"role": "user", "content": question},
         ]
@@ -653,7 +666,7 @@ async def build_streaming_context(
     if qt == "lookup" and not chunks:
         index_context = f"[Live Document Index (Recent Uploads)]\n{state.get('document_index', 'None')}\n"
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": sys_content},
             *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-6:],
             {"role": "user", "content": f"{index_context}\nQuestion: {question}\n\n[Note: No detailed document text chunks were retrieved. Answer using the Document Index above if possible. If the information isn't in the index, inform the user plainly and suggest uploading.]"},
         ]
@@ -690,7 +703,7 @@ async def build_streaming_context(
 
     context = "\n\n---\n\n".join(context_parts) if context_parts else ""
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": sys_content}]
     for msg in history:
         if msg["role"] in ("user", "assistant"):
             messages.append({"role": msg["role"], "content": msg["content"]})
