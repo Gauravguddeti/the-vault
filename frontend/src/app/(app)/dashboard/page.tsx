@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { deleteDocument } from "@/lib/api";
+import useSWR from "swr";
+import { swrFetch } from "@/lib/swrConfig";
 import { SkeletonDocCard } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
 
@@ -44,58 +45,54 @@ const fmt = (bytes: number) =>
 export default function DashboardPage() {
   const { data: session } = useSession();
   const router = useRouter();
-  const [docs, setDocs] = useState<Doc[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  // Track IDs currently animating out before removal
   const [exitingIds, setExitingIds] = useState<Set<string>>(new Set());
 
   const token = (session as any)?.accessToken || "";
 
-  const fetchDocs = useCallback(async () => {
-    if (!session) return;
-    try {
-      const res = await fetch(`${BACKEND}/api/documents`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) setDocs(await res.json());
-    } catch {}
-    setLoading(false);
-  }, [session, token]);
+  // SWR — returns cached data instantly on tab switch, revalidates silently in background
+  const hasPendingRef = { current: false };
+  const { data: docs = [], isLoading, mutate } = useSWR<Doc[]>(
+    token ? ["/api/documents", token] : null,
+    ([path, tok]: [string, string]) => swrFetch<Doc[]>(path, tok),
+    {
+      // Poll every 4s only while at least one doc is still processing
+      refreshInterval: (data) => {
+        const pending = (data ?? []).some(d => !["ready", "failed"].includes(d.status));
+        return pending ? 4000 : 0;
+      },
+      // Show stale data immediately on revisit — no flash of empty/skeleton
+      keepPreviousData: true,
+    }
+  );
 
-  useEffect(() => { fetchDocs(); }, [fetchDocs]);
-
-  // Poll every 3s if any doc is not ready/failed
+  // Listen for global upload complete event → invalidate SWR cache
   useEffect(() => {
-    const hasPending = docs.some(d => !["ready", "failed"].includes(d.status));
-    if (!hasPending) return;
-    const id = setInterval(fetchDocs, 3000);
-    return () => clearInterval(id);
-  }, [docs, fetchDocs]);
-
-  // Listen for global upload complete event
-  useEffect(() => {
-    window.addEventListener("vault-upload-complete", fetchDocs);
-    return () => window.removeEventListener("vault-upload-complete", fetchDocs);
-  }, [fetchDocs]);
+    const refetch = () => mutate();
+    window.addEventListener("vault-upload-complete", refetch);
+    return () => window.removeEventListener("vault-upload-complete", refetch);
+  }, [mutate]);
 
   async function handleDelete(id: string, name: string) {
-    // Start exit animation
+    // Optimistic UI: start exit animation immediately
     setExitingIds(prev => new Set(prev).add(id));
+    // Optimistically remove from cache
+    mutate(docs.filter(d => d.id !== id), false);
 
-    // Wait for animation then delete
     setTimeout(async () => {
       try {
         await fetch(`${BACKEND}/api/documents/${id}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
-        setDocs(d => d.filter(x => x.id !== id));
+        // Revalidate from server
+        mutate();
         setExitingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
         toast.success(`"${name}" deleted`);
       } catch {
-        // Revert animation on error
+        // Revert on error
+        mutate();
         setExitingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
         toast.error("Delete failed — please try again");
       }
@@ -110,13 +107,17 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ original_name: editName }),
       });
-      setDocs(d => d.map(x => x.id === id ? { ...x, original_name: editName } : x));
+      // Optimistically update cache
+      mutate(docs.map(d => d.id === id ? { ...d, original_name: editName } : d), false);
       setEditId(null);
       toast.success("Renamed successfully");
     } catch {
       toast.error("Rename failed");
     }
   }
+
+  // Only show skeletons on first load — not on tab switch revisits
+  const loading = isLoading && docs.length === 0;
 
   return (
     <div className="px-6 py-8 max-w-5xl mx-auto animate-fade-in">

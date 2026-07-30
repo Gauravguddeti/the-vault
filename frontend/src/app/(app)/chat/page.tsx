@@ -6,6 +6,8 @@ import ConfirmUploadModal from "@/components/ConfirmUploadModal";
 import { compressImage } from "@/lib/imageUtils";
 import { SkeletonChatRow } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
+import useSWR from "swr";
+import { swrFetch } from "@/lib/swrConfig";
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -26,13 +28,10 @@ const MAX_MB = 25;
 export default function ChatPage() {
   const { data: session } = useSession();
   const token = (session as any)?.accessToken || "";
-
-  const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
-  const [loadingSessions, setLoadingSessions] = useState(true);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [chatDragging, setChatDragging] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -41,6 +40,13 @@ export default function ChatPage() {
   // Streaming state
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // SWR for sessions — shows cached list instantly on tab switch
+  const { data: sessions = [], isLoading: loadingSessions, mutate: mutateSessions } = useSWR<Session[]>(
+    token ? ["/api/conversations", token] : null,
+    ([path, tok]: [string, string]) => swrFetch<Session[]>(path, tok),
+    { keepPreviousData: true, revalidateOnFocus: true }
+  );
   const messagesEnd = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -57,7 +63,6 @@ export default function ChatPage() {
       },
     });
 
-  useEffect(() => { if (session) loadSessions(); }, [session]);
   
   // Handle native back button on mobile
   useEffect(() => {
@@ -94,13 +99,6 @@ export default function ChatPage() {
     }
   }, [ingest.status]);
 
-  async function loadSessions() {
-    setLoadingSessions(true);
-    const r = await api("/api/conversations");
-    if (r.ok) { const data = await r.json(); setSessions(data); }
-    setLoadingSessions(false);
-  }
-
   async function loadMessages(sid: string) {
     setMessages([]);
     const r = await api(`/api/conversations/${sid}/messages`);
@@ -117,7 +115,8 @@ export default function ChatPage() {
     const r = await api("/api/conversations", { method: "POST" });
     if (r.ok) {
       const s = await r.json();
-      setSessions(prev => [s, ...prev]);
+      // Optimistically prepend to sessions cache
+      mutateSessions([s, ...sessions], false);
       window.history.pushState({ chatId: s.id }, "", "?chat=" + s.id);
       setActiveId(s.id);
       setMessages([]);
@@ -128,7 +127,8 @@ export default function ChatPage() {
     e.stopPropagation();
     setDeletingId(sid);
     await api(`/api/conversations/${sid}`, { method: "DELETE" });
-    setSessions(prev => prev.filter(s => s.id !== sid));
+    // Remove from cache optimistically
+    mutateSessions(sessions.filter(s => s.id !== sid), false);
     setDeletingId(null);
     if (activeId === sid) { 
       setActiveId(null); 
@@ -218,12 +218,13 @@ export default function ChatPage() {
       setMessages(prev => [...prev, assistantMsg]);
       setStreamingContent(null);
 
-      setSessions(prev =>
-        prev.map(s =>
+      mutateSessions(
+        sessions.map(s =>
           s.id === activeId
             ? { ...s, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
             : s
-        )
+        ),
+        false
       );
     } catch (err: any) {
       if (err?.name === "AbortError") return; // intentional cancel
@@ -423,7 +424,7 @@ export default function ChatPage() {
                     const r = await api("/api/conversations", { method: "POST" });
                     if (r.ok) {
                       const s = await r.json();
-                      setSessions(prev => [s, ...prev]);
+                      mutateSessions([s, ...sessions], false);
                       window.history.pushState({ chatId: s.id }, "", "?chat=" + s.id);
                       setActiveId(s.id);
                       setMessages([]);

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { SessionProvider } from "next-auth/react";
+import SWRProvider from "@/components/SWRProvider";
 
 export const metadata: Metadata = {
   title: "The Vault — Private Document Intelligence",
@@ -22,8 +23,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
       </head>
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <SWRProvider>{children}</SWRProvider>
+        </SessionProvider>
       </body>
     </html>
   );
 }
+
