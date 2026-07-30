@@ -4,6 +4,8 @@ import { useSession } from "next-auth/react";
 import { useDocumentIngest } from "@/lib/useDocumentIngest";
 import ConfirmUploadModal from "@/components/ConfirmUploadModal";
 import { compressImage } from "@/lib/imageUtils";
+import { SkeletonChatRow } from "@/components/ui/Skeleton";
+import { toast } from "@/components/ui/Toast";
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -36,6 +38,9 @@ export default function ChatPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Streaming state
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -127,15 +132,17 @@ export default function ChatPage() {
     setDeletingId(null);
     if (activeId === sid) { 
       setActiveId(null); 
-      setMessages([]); 
+      setMessages([]);
+      setStreamingContent(null);
       window.history.replaceState({}, "", window.location.pathname);
     }
+    toast.success("Conversation deleted");
   }
 
-  async function sendMessage(e?: React.FormEvent) {
+  async function sendMessage(e?: React.FormEvent, overrideQ?: string) {
     e?.preventDefault();
-    if (!question.trim() || !activeId || loading) return;
-    const q = question.trim();
+    const q = overrideQ ?? question.trim();
+    if (!q || !activeId || loading) return;
     setQuestion("");
 
     const tempUser: Message = {
@@ -146,41 +153,84 @@ export default function ChatPage() {
     };
     setMessages(prev => [...prev, tempUser]);
     setLoading(true);
+    setStreamingContent(""); // start streaming bubble
+
+    // Cancel any in-flight stream
+    abortRef.current?.abort();
+    const abort = new AbortController();
+    abortRef.current = abort;
 
     try {
-      const r = await api("/api/query", {
-        method: "POST",
-        body: JSON.stringify({ question: q, session_id: activeId }),
-      });
-      if (r.ok) {
-        const data = await r.json();
-        const assistantMsg: Message = {
-          id: "temp-ai-" + Date.now(),
-          role: "assistant",
-          content: data.answer,
-          sources: data.sources,
-          query_type: data.query_type,
-          created_at: new Date().toISOString(),
-        };
-        setMessages(prev => [...prev, assistantMsg]);
-        setSessions(prev =>
-          prev.map(s =>
-            s.id === activeId
-              ? { ...s, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
-              : s
-          )
-        );
-      } else {
-        setMessages(prev => [...prev, {
-          id: "err-" + Date.now(), role: "assistant",
-          content: "Sorry, something went wrong. Please try again.",
-          created_at: new Date().toISOString(),
-        }]);
+      const res = await fetch(
+        `${BACKEND}/api/query/stream`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ question: q, session_id: activeId }),
+          signal: abort.signal,
+        }
+      );
+
+      if (!res.ok || !res.body) {
+        throw new Error(`HTTP ${res.status}`);
       }
-    } catch {
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      let finalSources: any[] = [];
+      let finalQueryType = "lookup";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.done) {
+              finalSources = data.sources || [];
+              finalQueryType = data.query_type || "lookup";
+            } else if (data.token) {
+              accumulated += data.token;
+              setStreamingContent(accumulated);
+            }
+          } catch {}
+        }
+      }
+
+      // Commit streaming content → real message
+      const assistantMsg: Message = {
+        id: "ai-" + Date.now(),
+        role: "assistant",
+        content: accumulated || "Sorry, I couldn't generate a response.",
+        sources: finalSources,
+        query_type: finalQueryType,
+        created_at: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      setStreamingContent(null);
+
+      setSessions(prev =>
+        prev.map(s =>
+          s.id === activeId
+            ? { ...s, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
+            : s
+        )
+      );
+    } catch (err: any) {
+      if (err?.name === "AbortError") return; // intentional cancel
+      setStreamingContent(null);
       setMessages(prev => [...prev, {
-        id: "err2-" + Date.now(), role: "assistant",
-        content: "Network error. Please check your connection.",
+        id: "err-" + Date.now(), role: "assistant",
+        content: "Something went wrong. Please try again.",
         created_at: new Date().toISOString(),
       }]);
     }
@@ -279,7 +329,10 @@ export default function ChatPage() {
         </div>
         <div className="flex-1 overflow-y-auto py-2 px-2 space-y-1 min-w-[16rem]">
           {loadingSessions ? (
-            <div className="flex justify-center py-8"><div className="spinner" /></div>
+            // Skeleton rows while sessions load
+            <div className="space-y-1 px-1">
+              {[...Array(4)].map((_, i) => <SkeletonChatRow key={i} />)}
+            </div>
           ) : sessions.length === 0 ? (
             <p className="text-xs text-center py-6" style={{ color: "var(--text-muted)" }}>No conversations yet</p>
           ) : sessions.map(s => (
@@ -354,10 +407,44 @@ export default function ChatPage() {
               </svg>
             </div>
             <h2 className="text-xl font-bold mb-2">Ask your documents anything</h2>
-            <p style={{ color: "var(--text-muted)", maxWidth: 380 }} className="text-sm">
-              Start a new chat or select a conversation. Ask about specific receipts, spending totals, vendor information, and more.
+            <p style={{ color: "var(--text-muted)", maxWidth: 380 }} className="text-sm mb-6">
+              Start a new chat or pick a conversation. Ask about receipts, spending totals, or any document in your Vault.
             </p>
-            <button onClick={newChat} className="btn-primary mt-6">Start new chat</button>
+            {/* Example prompt chips */}
+            <div className="flex flex-col gap-2 mb-6 w-full max-w-sm">
+              {[
+                "How much did I spend on electronics?",
+                "What did I buy from Kamal Novelties?",
+                "Show me my most recent receipt",
+              ].map(prompt => (
+                <button
+                  key={prompt}
+                  onClick={async () => {
+                    const r = await api("/api/conversations", { method: "POST" });
+                    if (r.ok) {
+                      const s = await r.json();
+                      setSessions(prev => [s, ...prev]);
+                      window.history.pushState({ chatId: s.id }, "", "?chat=" + s.id);
+                      setActiveId(s.id);
+                      setMessages([]);
+                      // Brief delay so state settles, then send
+                      setTimeout(() => sendMessage(undefined, prompt), 50);
+                    }
+                  }}
+                  className="text-left text-sm px-4 py-2.5 rounded-xl transition-all btn-press"
+                  style={{
+                    background: "var(--surface-1)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text-secondary)",
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(99,102,241,0.4)"; (e.currentTarget as HTMLElement).style.color = "#818cf8"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)"; }}
+                >
+                  <span style={{ color: "var(--text-muted)" }}>Try: </span>{prompt}
+                </button>
+              ))}
+            </div>
+            <button onClick={newChat} className="btn-primary">Start new chat</button>
           </div>
         ) : (
           <>
@@ -380,7 +467,9 @@ export default function ChatPage() {
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-6">
               {messages.map((msg, i) => (
-                <div key={msg.id + i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} animate-slide-up`}>
+                <div key={msg.id + i}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} animate-slide-up`}
+                  style={{ animationDelay: `${Math.min(i * 20, 100)}ms`, animationFillMode: "both" }}>
                   {msg.role === "assistant" && (
                     <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mr-3 mt-1"
                       style={{ background: "var(--accent)", boxShadow: "0 4px 0 #8a000e" }}>
@@ -390,7 +479,7 @@ export default function ChatPage() {
                     </div>
                   )}
                   <div className="max-w-[90%] md:max-w-[75%] flex flex-col gap-2">
-                    <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap`}
+                    <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
                       style={
                         msg.role === "user"
                           ? { background: msg.attachmentName ? "rgba(99,102,241,0.2)" : "var(--accent)", color: "white", borderBottomRightRadius: 4 }
@@ -399,59 +488,74 @@ export default function ChatPage() {
                       {msg.content}
                     </div>
 
-                    {/* Vault confirm actions — only for the most recent attach-ask bubble */}
+                    {/* Vault confirm actions */}
                     {msg.role === "assistant" && attachedFile && msg.id.startsWith("attach-ask-") &&
                       i === messages.length - 1 && (
                         <div className="flex gap-2 ml-1">
                           <button id="chat-vault-confirm-btn"
                             onClick={startVaultUpload}
-                            className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
+                            className="text-xs px-3 py-1.5 rounded-lg font-medium btn-press"
                             style={{ background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.4)", color: "#818cf8" }}>
                             Upload to Vault
                           </button>
                           <button id="chat-vault-discard-btn"
                             onClick={discardAttachment}
-                            className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
+                            className="text-xs px-3 py-1.5 rounded-lg font-medium btn-press"
                             style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
                             Not now
                           </button>
                         </div>
                       )}
 
+                    {/* Source citations with hover detail */}
                     {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
-                      <details className="mt-1">
-                        <summary className="text-xs cursor-pointer" style={{ color: "var(--text-muted)" }}>
-                          {msg.sources.length} source{msg.sources.length !== 1 ? "s" : ""}
-                        </summary>
-                        <div className="mt-2 space-y-1">
-                          {msg.sources.map((s: any, j: number) => (
-                            <div key={j} className="text-xs px-3 py-2 rounded-lg"
-                              style={{ background: "var(--surface-3)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
-                              📄 {s.document_name} · chunk {s.chunk_index} · {(s.similarity * 100).toFixed(0)}% match
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {msg.sources.map((s: any, j: number) => (
+                          <div key={j} className="relative group/src">
+                            <span
+                              className="text-xs px-2.5 py-1 rounded-full cursor-default"
+                              style={{ background: "var(--surface-3)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                              📄 {s.document_name.length > 20 ? s.document_name.slice(0, 18) + "…" : s.document_name}
+                            </span>
+                            {/* Hover tooltip */}
+                            <div className="absolute bottom-full left-0 mb-1.5 hidden group-hover/src:block z-20 animate-scale-in">
+                              <div className="text-xs px-3 py-2 rounded-xl whitespace-nowrap"
+                                style={{ background: "var(--surface-1)", border: "1px solid var(--border)", boxShadow: "0 4px 16px rgba(0,0,0,0.3)", color: "var(--text-secondary)" }}>
+                                <p className="font-medium" style={{ color: "var(--text-primary)" }}>{s.document_name}</p>
+                                <p>Chunk #{s.chunk_index} · {(s.similarity * 100).toFixed(0)}% match</p>
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      </details>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
               ))}
 
-              {loading && (
+              {/* Streaming bubble */}
+              {streamingContent !== null && (
                 <div className="flex justify-start animate-slide-up">
-                  <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mr-3"
-                    style={{ background: "var(--accent)" }}>
+                  <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mr-3 mt-1"
+                    style={{ background: "var(--accent)", boxShadow: "0 4px 0 #8a000e" }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
                     </svg>
                   </div>
-                  <div className="rounded-2xl px-4 py-3" style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderBottomLeftRadius: 4 }}>
-                    <div className="dot-pulse flex gap-1 items-center h-5">
-                      <span /><span /><span />
+                  <div className="max-w-[90%] md:max-w-[75%]">
+                    <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
+                      style={{ background: "var(--surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderBottomLeftRadius: 4 }}>
+                      {streamingContent || (
+                        <div className="dot-pulse flex gap-1 items-center h-5">
+                          <span /><span /><span />
+                        </div>
+                      )}
+                      {streamingContent && <span className="streaming-cursor" />}
                     </div>
                   </div>
                 </div>
               )}
+
               <div ref={messagesEnd} />
             </div>
 

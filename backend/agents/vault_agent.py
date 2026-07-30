@@ -590,3 +590,133 @@ def get_agent():
     if _agent is None:
         _agent = build_vault_agent()
     return _agent
+
+
+# ── Streaming context builder ───────────────────────────────────────────
+
+async def build_streaming_context(
+    question: str,
+    session_id: str,
+    user_id: str,
+    conn,
+) -> dict:
+    """
+    Runs memory load, classification, and retrieval — everything except the
+    final LLM call. Returns a dict with the assembled messages list, sources,
+    query_type, etc. for the streaming endpoint to use with stream=True.
+    """
+    # Re-use the node functions directly rather than the full graph
+    state: VaultState = {
+        "question": question,
+        "session_id": session_id,
+        "user_id": user_id,
+        "conn": conn,
+        "history": [],
+        "document_index": "",
+        "query_type": "lookup",
+        "chunks": [],
+        "sql_result": None,
+        "answer": "",
+        "sources": [],
+        "context_truncated": False,
+    }
+
+    state = await load_memory_node(state)
+    state = await classify_query_node(state)
+
+    qt = state["query_type"]
+    if qt == "aggregation":
+        state = await sql_aggregate_node(state)
+    elif qt == "lookup":
+        state = await retrieve_node(state)
+    # chat and out_of_scope skip retrieval
+
+    # Build the LLM messages exactly as generate_answer_node does
+    chunks = state.get("chunks", [])
+    sql_result = state.get("sql_result")
+    history = state.get("history", [])
+
+    if qt == "out_of_scope":
+        messages = [
+            {"role": "system", "content": OUT_OF_SCOPE_SYSTEM},
+            *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-4:],
+            {"role": "user", "content": question},
+        ]
+        return {
+            "messages": messages,
+            "sources": [],
+            "query_type": qt,
+            "context_truncated": False,
+            "has_history": bool(history),
+        }
+
+    if qt == "lookup" and not chunks:
+        index_context = f"[Live Document Index (Recent Uploads)]\n{state.get('document_index', 'None')}\n"
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            *[{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")][-6:],
+            {"role": "user", "content": f"{index_context}\nQuestion: {question}\n\n[Note: No detailed document text chunks were retrieved. Answer using the Document Index above if possible. If the information isn't in the index, inform the user plainly and suggest uploading.]"},
+        ]
+        return {
+            "messages": messages,
+            "sources": [],
+            "query_type": qt,
+            "context_truncated": False,
+            "has_history": bool(history),
+        }
+
+    context_parts = []
+    if qt == "aggregation" and sql_result:
+        if sql_result.get('count', 0) == 0:
+            context_parts.append(
+                f"[SQL Aggregation Result]: ZERO MATCHES FOUND for Category={sql_result.get('category', 'Any')}, "
+                f"Date from={sql_result.get('date_from', 'Any')} to {sql_result.get('date_to', 'Any')}."
+            )
+        else:
+            docs_str = ", ".join([f"{d['name']} ({d['amount']} {d['currency']})" for d in sql_result.get('docs', [])])
+            context_parts.append(
+                f"[SQL Aggregation Result]: EXACT MATH TOTAL={sql_result.get('total')}, "
+                f"Currency={sql_result.get('currency')}, Count={sql_result.get('count')}, "
+                f"Category={sql_result.get('category', 'Any')}, "
+                f"Date from={sql_result.get('date_from', 'Any')} to {sql_result.get('date_to', 'Any')}.\n"
+                f"Contributing documents: {docs_str}"
+            )
+
+    for i, chunk in enumerate(chunks):
+        context_parts.append(
+            f"[Chunk {i+1} | {chunk['document_name']} | chunk #{chunk['chunk_index']} "
+            f"| similarity: {chunk['similarity']:.2f}]\n{chunk['text']}"
+        )
+
+    context = "\n\n---\n\n".join(context_parts) if context_parts else ""
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for msg in history:
+        if msg["role"] in ("user", "assistant"):
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    index_context = f"[Live Document Index (Recent Uploads)]\n{state.get('document_index', 'None')}\n"
+    if context:
+        user_content = f"{index_context}\nContext from documents:\n<document_content>\n{context}\n</document_content>\n\nQuestion: {question}"
+    else:
+        user_content = f"{index_context}\nQuestion: {question}"
+    messages.append({"role": "user", "content": user_content})
+
+    sources = [
+        {
+            "document_name": c["document_name"],
+            "document_id": c["document_id"],
+            "chunk_index": c["chunk_index"],
+            "similarity": round(c["similarity"], 3),
+        }
+        for c in chunks
+    ]
+
+    return {
+        "messages": messages,
+        "sources": sources,
+        "query_type": qt,
+        "context_truncated": state.get("context_truncated", False),
+        "has_history": bool(history),
+    }
+

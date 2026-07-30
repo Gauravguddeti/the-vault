@@ -6,6 +6,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useDocumentIngest } from "@/lib/useDocumentIngest";
 import ConfirmUploadModal from "@/components/ConfirmUploadModal";
 import { compressImage } from "@/lib/imageUtils";
+import { ToastContainer, toast } from "@/components/ui/Toast";
 
 // Offline queue stored in localStorage
 const OFFLINE_QUEUE_KEY = "vault-offline-queue";
@@ -205,10 +206,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       onDragOver={e => e.preventDefault()}
       onDrop={onGlobalDrop}
     >
-      {/* Pre-confirm dialog: "Add to Vault?" */}
+      {/* Pre-confirm dialog: slide up from bottom on mobile, centered on desktop */}
       {preConfirmFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+        <>
+          {/* Backdrop */}
+          <div className="bottom-sheet-backdrop" onClick={() => setPreConfirmFile(null)} />
+          {/* Bottom sheet on mobile / centered dialog on md+ */}
+          <div className="md:hidden bottom-sheet">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
@@ -225,7 +229,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex gap-3">
               <button
                 onClick={() => setPreConfirmFile(null)}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-3 rounded-xl text-sm font-medium btn-press min-h-[44px]"
                 style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
                 Not now
               </button>
@@ -237,12 +241,49 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   ingest.reset();
                   ingest.startIngest(f);
                 }}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition-all btn-primary">
+                className="flex-1 px-4 py-3 rounded-xl text-sm font-bold btn-press min-h-[44px] btn-primary">
                 Add to Vault
               </button>
             </div>
           </div>
-        </div>
+          {/* Desktop-style centered dialog */}
+          <div className="hidden md:flex fixed inset-0 z-50 items-center justify-center p-4 animate-fade-in">
+            <div className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-scale-in">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm truncate">{preConfirmFile.name}</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{(preConfirmFile.size / 1024).toFixed(0)} KB</p>
+                </div>
+              </div>
+              <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>Add this file to your Vault?</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPreConfirmFile(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium btn-press"
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                  Not now
+                </button>
+                <button
+                  onClick={() => {
+                    const f = preConfirmFile;
+                    setPreConfirmFile(null);
+                    setModalOpen(true);
+                    ingest.reset();
+                    ingest.startIngest(f);
+                  }}
+                  className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold btn-press btn-primary">
+                  Add to Vault
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Global drag-drop overlay */}
@@ -340,7 +381,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <button
           id="mobile-scan-fab"
           onClick={openScanner}
-          className="md:hidden fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-transform active:scale-95"
+          className="md:hidden fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl btn-press"
           style={{
             background: "var(--accent)",
             boxShadow: "0 8px 0 #8a000e, 0 16px 40px rgba(194,1,20,0.4)",
@@ -354,6 +395,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </button>
         )}
       </main>
+
+      <ToastContainer />
 
       {/* Hidden camera input */}
       <input
