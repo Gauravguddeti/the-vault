@@ -23,6 +23,7 @@ class MessageOut(BaseModel):
     content: str
     sources: Optional[list]
     query_type: Optional[str]
+    thinking: Optional[str] = None
     created_at: str
 
 
@@ -69,7 +70,15 @@ async def get_messages(
     session_id: str,
     conn: asyncpg.Connection = Depends(get_db_with_rls),
 ):
-    # RLS ensures only the owner can see these messages
+    # RLS ensures only the owner can see these — but also validate the session
+    # itself belongs to the user before fetching messages (IDOR protection).
+    session = await conn.fetchrow(
+        "SELECT id FROM conversation_sessions WHERE id=$1::uuid",
+        session_id,
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
     rows = await conn.fetch(
         """
         SELECT id::text, role, content, sources, query_type, created_at::text
@@ -89,6 +98,9 @@ async def delete_session(
     session_id: str,
     conn: asyncpg.Connection = Depends(get_db_with_rls),
 ):
+    # RLS scopes this DELETE to the requesting user — they can only delete
+    # their own sessions. DELETE 0 means either the session doesn't exist
+    # or it belongs to another user — both result in 404 (no info leak).
     result = await conn.execute(
         "DELETE FROM conversation_sessions WHERE id=$1::uuid",
         session_id,
