@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { IngestStatus } from "@/lib/useDocumentIngest";
+import { toast } from "@/components/ui/Toast";
 
 interface ConfirmUploadModalProps {
   status: IngestStatus;
@@ -101,6 +102,8 @@ export default function ConfirmUploadModal({
               <button
                 onClick={() => {
                   onAutoConfirm();  // set autoConfirmRef = true so hook auto-submits when ready
+                  toast.info("Processing in background... Getting words, understanding language 🧠");
+                  window.dispatchEvent(new Event("vault-upload-complete")); // force SWR revalidate instantly
                   onDismiss();      // hide modal only — do NOT reset ingest state
                 }}
                 className="mt-2 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95"

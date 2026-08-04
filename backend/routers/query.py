@@ -40,8 +40,8 @@ async def run_query(
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     session = await conn.fetchrow(
-        "SELECT id FROM conversation_sessions WHERE id=$1::uuid",
-        body.session_id,
+        "SELECT id FROM conversation_sessions WHERE id=$1::uuid AND user_id=$2::uuid",
+        body.session_id, user["user_id"],
     )
     if not session:
         raise HTTPException(status_code=404, detail="Conversation session not found")
@@ -112,8 +112,8 @@ async def run_query_stream(
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     session = await conn.fetchrow(
-        "SELECT id FROM conversation_sessions WHERE id=$1::uuid",
-        body.session_id,
+        "SELECT id FROM conversation_sessions WHERE id=$1::uuid AND user_id=$2::uuid",
+        body.session_id, user["user_id"],
     )
     if not session:
         raise HTTPException(status_code=404, detail="Conversation session not found")

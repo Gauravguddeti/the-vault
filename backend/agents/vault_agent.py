@@ -171,20 +171,27 @@ async def load_memory_node(state: VaultState) -> VaultState:
     """Load recent conversation history for this session."""
     conn = state["conn"]
     session_id = state["session_id"]
+    user_id = state["user_id"]
 
+    # Validate the session belongs to this user before loading any history
     session = await conn.fetchrow(
-        "SELECT summary FROM conversation_sessions WHERE id=$1::uuid",
-        session_id,
+        "SELECT summary FROM conversation_sessions WHERE id=$1::uuid AND user_id=$2::uuid",
+        session_id, user_id,
     )
+
+    # If session doesn't belong to this user, return empty history (safe fallback)
+    if not session:
+        return {**state, "history": [], "document_index": "No documents uploaded yet.", "user_memory": "No specific preferences learned yet."}
 
     messages = await conn.fetch(
         """
         SELECT role, content FROM conversation_messages
-        WHERE session_id=$1::uuid
+        WHERE session_id=$1::uuid AND user_id=$2::uuid
         ORDER BY created_at DESC
-        LIMIT $2
+        LIMIT $3
         """,
         session_id,
+        user_id,
         settings.MEMORY_WINDOW,
     )
 
@@ -202,10 +209,11 @@ async def load_memory_node(state: VaultState) -> VaultState:
         SELECT d.original_name, d.created_at, e.category, e.vendor, e.amount, e.currency, e.raw_json
         FROM documents d
         LEFT JOIN extracted_fields e ON d.id = e.document_id
-        WHERE d.status = 'ready'
+        WHERE d.status = 'ready' AND d.user_id = $1::uuid
         ORDER BY d.created_at DESC
         LIMIT 20
-        """
+        """,
+        state["user_id"]
     )
     doc_index_lines = []
     for d in docs:
@@ -411,7 +419,8 @@ async def retrieve_node(state: VaultState) -> VaultState:
     # Count distinct ready documents — determines retrieval aggressiveness
     try:
         doc_count_row = await conn.fetchrow(
-            "SELECT COUNT(DISTINCT id) AS cnt FROM documents WHERE status = 'ready'"
+            "SELECT COUNT(DISTINCT id) AS cnt FROM documents WHERE status = 'ready' AND user_id = $1::uuid",
+            state["user_id"]
         )
         doc_count = int(doc_count_row["cnt"]) if doc_count_row else 0
     except Exception:
@@ -434,6 +443,7 @@ async def retrieve_node(state: VaultState) -> VaultState:
         conn,
         query_text=context_question,
         query_embedding=query_vector,
+        user_id=state["user_id"],
         limit=effective_limit,
         min_vector_score=effective_min_score,
     )
@@ -496,9 +506,9 @@ async def sql_aggregate_node(state: VaultState) -> VaultState:
                 ef.category
             FROM extracted_fields ef
             JOIN documents d ON d.id = ef.document_id
-            WHERE 1=1
+            WHERE d.user_id = $1::uuid
         """
-        args = []
+        args = [state["user_id"]]
         
         if category:
             args.append(category)

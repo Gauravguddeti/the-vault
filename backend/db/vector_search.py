@@ -26,6 +26,7 @@ _RRF_K = 60
 async def vector_search(
     conn: asyncpg.Connection,
     query_embedding: List[float],
+    user_id: str,
     limit: int = None,
     min_score: float = None,
 ) -> List[Dict]:
@@ -50,12 +51,14 @@ async def vector_search(
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             WHERE 1 - (c.embedding <=> $1::vector) >= $2
+              AND c.user_id = $4::uuid
             ORDER BY c.embedding <=> $1::vector
             LIMIT $3
             """,
             str(query_embedding),
             min_score,
             limit,
+            user_id,
         )
         return [dict(r) for r in rows]
     except Exception as e:
@@ -66,6 +69,7 @@ async def vector_search(
 async def keyword_search(
     conn: asyncpg.Connection,
     query_text: str,
+    user_id: str,
     limit: int = None,
 ) -> List[Dict]:
     """
@@ -92,11 +96,13 @@ async def keyword_search(
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             WHERE to_tsvector('english', c.text) @@ plainto_tsquery('english', $1)
+              AND c.user_id = $3::uuid
             ORDER BY similarity DESC
             LIMIT $2
             """,
             query_text,
             limit,
+            user_id,
         )
         return [dict(r) for r in rows]
     except Exception as e:
@@ -147,6 +153,7 @@ async def hybrid_search(
     conn: asyncpg.Connection,
     query_text: str,
     query_embedding: List[float],
+    user_id: str,
     limit: int = None,
     min_vector_score: float = None,
 ) -> List[Dict]:
@@ -160,6 +167,7 @@ async def hybrid_search(
         conn: RLS-scoped asyncpg connection
         query_text: raw query string (for BM25)
         query_embedding: dense embedding vector (for cosine)
+        user_id: current user ID
         limit: max chunks to return
         min_vector_score: minimum cosine similarity for vector leg
     Returns:
@@ -170,13 +178,10 @@ async def hybrid_search(
 
     # Run both legs concurrently
     import asyncio
-    vector_task = asyncio.create_task(
-        vector_search(conn, query_embedding, limit=limit * 2, min_score=min_score)
+    vector_results, keyword_results = await asyncio.gather(
+        vector_search(conn, query_embedding, user_id=user_id, limit=limit * 2, min_score=min_score),
+        keyword_search(conn, query_text, user_id=user_id, limit=limit * 2),
     )
-    keyword_task = asyncio.create_task(
-        keyword_search(conn, query_text, limit=limit * 2)
-    )
-    vector_results, keyword_results = await asyncio.gather(vector_task, keyword_task)
 
     logger.debug(
         "[HYBRID] vector=%d keyword=%d query=%r",

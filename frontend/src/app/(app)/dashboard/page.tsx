@@ -33,7 +33,7 @@ function StatusBadge({ status }: { status: string }) {
 
   const label = {
     pending: "Pending", awaiting_confirmation: "Awaiting review",
-    ocr_processing: "OCR…", embedding: "Embedding…", ready: "Ready", failed: "Failed",
+    ocr_processing: "Getting words...", embedding: "Understanding language...", ready: "Ready", failed: "Failed",
   }[status] ?? status;
 
   return <span key={status} className={`badge ${cls}`}>{dot} {label}</span>;

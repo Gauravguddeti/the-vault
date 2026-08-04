@@ -72,25 +72,25 @@ async def list_sessions(
 @router.get("/{session_id}/messages", response_model=List[MessageOut])
 async def get_messages(
     session_id: str,
+    user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_with_rls),
 ):
-    # RLS ensures only the owner can see these — but also validate the session
-    # itself belongs to the user before fetching messages (IDOR protection).
+    # Defense in depth: validate the session belongs to the user
     session = await conn.fetchrow(
-        "SELECT id FROM conversation_sessions WHERE id=$1::uuid",
-        session_id,
+        "SELECT id FROM conversation_sessions WHERE id=$1::uuid AND user_id=$2::uuid",
+        session_id, user["user_id"]
     )
     if not session:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     rows = await conn.fetch(
         """
-        SELECT id::text, role, content, sources, query_type, created_at::text
+        SELECT id::text, role, content, sources, query_type, thinking, created_at::text
         FROM conversation_messages
-        WHERE session_id=$1::uuid
+        WHERE session_id=$1::uuid AND user_id=$2::uuid
         ORDER BY created_at ASC
         """,
-        session_id,
+        session_id, user["user_id"]
     )
     return [dict(r) for r in rows]
 
