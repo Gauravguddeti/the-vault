@@ -66,6 +66,8 @@ export default function ChatPage() {
   const { data: session } = useSession();
   const token = (session as any)?.accessToken || "";
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Track whether we've already restored from URL on this mount cycle
+  const restoredRef = useRef(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -105,19 +107,47 @@ export default function ChatPage() {
     return res;
   };
 
-  
-  // Handle native back button on mobile
+
+  // ── Restore session from URL on mount (fixes "messages vanish on tab switch") ──
+  // When user navigates away (to /vault, /settings) and comes back, the component
+  // remounts with fresh state. The URL still holds ?chat=<id> — we read it here
+  // and reload the session + messages automatically.
+  useEffect(() => {
+    // Wait until we have a token and sessions are loaded before restoring
+    if (!token || loadingSessions) return;
+    // Only restore once per mount cycle
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const chatId = params.get("chat");
+    if (!chatId) return;
+
+    // Validate the session actually belongs to this user (it's in the loaded list)
+    const sessionExists = sessions.some(s => s.id === chatId);
+    if (!sessionExists) return;
+
+    // Restore: set active ID and fetch messages
+    setActiveId(chatId);
+    loadMessages(chatId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, loadingSessions, sessions]);
+
+  // Handle native back button on mobile — also reload messages
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       if (e.state?.chatId) {
         setActiveId(e.state.chatId);
+        loadMessages(e.state.chatId);
       } else {
         setActiveId(null);
+        setMessages([]);
       }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
@@ -632,7 +662,7 @@ export default function ChatPage() {
                 </div>
               ))}
 
-              {/* Streaming bubble */}
+              {/* Streaming / thinking bubble */}
               {streamingContent !== null && (
                 <div className="flex justify-start animate-slide-up">
                   <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mr-3 mt-1"
@@ -642,14 +672,30 @@ export default function ChatPage() {
                     </svg>
                   </div>
                   <div className="max-w-[90%] md:max-w-[75%]">
-                    <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
+                    <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed"
                       style={{ background: "var(--surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderBottomLeftRadius: 4 }}>
-                      {streamingContent || (
-                        <div className="dot-pulse flex gap-1 items-center h-5">
-                          <span /><span /><span />
+                      {streamingContent === "" ? (
+                        /* ── Phase 1: Thinking shimmer — waiting for first token ── */
+                        <div className="thinking-skeleton" style={{ minWidth: 220 }}>
+                          <div className="thinking-label" style={{ marginBottom: 10 }}>
+                            <span className="tl-dot" />
+                            <span className="tl-dot" />
+                            <span className="tl-dot" />
+                            <span style={{ marginLeft: 6, letterSpacing: "0.01em" }}>Thinking…</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div className="skel-line" style={{ width: "88%" }} />
+                            <div className="skel-line" style={{ width: "62%" }} />
+                            <div className="skel-line" style={{ width: "78%" }} />
+                          </div>
                         </div>
+                      ) : (
+                        /* ── Phase 2: Text streams in, fades in on first token ── */
+                        <span className="whitespace-pre-wrap animate-fade-in" style={{ animationDuration: "200ms" }}>
+                          {streamingContent}
+                          <span className="streaming-cursor" />
+                        </span>
                       )}
-                      {streamingContent && <span className="streaming-cursor" />}
                     </div>
                   </div>
                 </div>

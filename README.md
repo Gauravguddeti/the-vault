@@ -10,16 +10,17 @@ A privacy-preserving semantic search system in a multi-tenant serverless archite
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js (App Router) + Tailwind CSS → Vercel |
+| Frontend | Next.js (App Router) + Vanilla CSS (custom design tokens) → Vercel |
 | Auth | NextAuth v5 (Credentials) + Neon Postgres adapter |
 | Database | Neon (serverless Postgres) + pgvector |
 | Backend | FastAPI (Python) → Render |
 | OCR | Mistral OCR API (primary) + pytesseract (fallback) |
-| LLM | Groq API (llama-3.3-70b-versatile) |
+| LLM | Groq API (llama-3.3-70b-versatile / llama-3.1-8b-instant for fast ops) |
 | Orchestration | LangGraph (Python) |
 | Vector Store | pgvector inside Neon |
 | Multi-tenancy | Postgres Row-Level Security (RLS) |
 | Rate Limiting | slowapi (per-IP, 10 uploads/min · 20 queries/min) |
+| Web Search | Tavily API + NIH RxNorm for drug name resolution |
 
 ---
 
@@ -36,7 +37,8 @@ Upload → OCR (Mistral / tesseract fallback)
        → Status: ready
 ```
 
-- **Confirmation step**: files aren't committed until the user confirms (two-phase upload).
+- **Two-phase confirmation**: files aren't committed until the user reviews extracted fields. A modal shows rotating humorous loading phrases ("Bribing the AI with digital cookies 🍪", "Squinting really hard at the blurry bits 👀") while waiting.
+- **"Do It Yourself" mode**: user can dismiss the confirmation modal and let processing continue silently in the background. The document card on the dashboard shows live status updates via polling (`pending → ocr_processing → embedding → ready`).
 - **Duplicate detection**: server-side check (same vendor + amount + date) before finalising.
 - **Offline queue**: files scanned while offline are queued in `localStorage` and auto-processed on reconnect.
 
@@ -46,16 +48,20 @@ A LangGraph agent with four query modes, classified per-message by a fast LLM ca
 | Mode | How it works |
 |------|-------------|
 | `chat` | Conversational reply, no retrieval |
-| `lookup` | Semantic search (pgvector cosine similarity) → grounded answer with citations |
+| `lookup` | Hybrid search (pgvector + FTS via RRF) → grounded answer with citations |
 | `aggregation` | Intent parsed to JSON (category + date range) → **SQL math** → LLM describes result. No LLM arithmetic. |
-| `web_search` | Tavily fallback for general knowledge queries, clearly labeled for the user |
+| `web_search` | Tavily fallback for background info on items from uploaded documents, clearly labeled |
+| `out_of_scope` | Guardrail redirect for off-topic general knowledge queries |
 
-- **Hybrid Search**: `lookup` queries use Reciprocal Rank Fusion (RRF) combining vector similarity (`pgvector`) with keyword-based Full-Text Search (`to_tsvector`) for robust retrieval.
-- **OCR Confirmation Gate**: If you query a document that has low-confidence OCR fields (e.g., blurry amounts or garbled medication names), the LangGraph automatically halts and asks you to confirm or correct the value before answering.
-- **Thinking Pre-step**: For complex queries, a fast `<thinking>` step runs in the background to reason through the retrieved context before streaming the final answer to the user (visible via a "Show reasoning" toggle).
-- **Dynamic Suggestions**: Chat interface automatically suggests contextual prompt chips based on the actual categories of documents you've uploaded.
+- **Hybrid Search**: `lookup` queries use Reciprocal Rank Fusion (RRF) combining vector similarity (`pgvector`) with keyword-based Full-Text Search (`to_tsvector`) for robust retrieval — catches OCR-garbled drug names and rare proper nouns.
+- **Thinking Pre-step**: For complex queries, a fast `<thinking>` step runs in the background to reason through retrieved context before streaming the final answer. Visible via a collapsible "Show reasoning" toggle. The `thinking` column is persisted in `conversation_messages`.
+- **Streaming with loading animation**: Two-phase streaming bubble — a shimmer skeleton with bouncing accent-coloured dots and "Thinking…" label while waiting for the first token, then a smooth crossfade into streaming text with a blinking `▋` cursor.
+- **Chat persistence across navigation**: Active session is stored in the URL (`?chat=<id>`). Navigating to Vault or Settings and back automatically restores the correct conversation and reloads messages.
+- **OCR Confirmation Gate**: If you query a document that has low-confidence OCR fields, LangGraph halts and asks you to confirm or correct the value before answering.
+- **Dynamic Suggestions**: Chat interface automatically suggests contextual prompt chips based on the actual categories of your uploaded documents.
 - **RxNorm Drug Resolution**: Garbled medication names from prescriptions are automatically resolved against the NIH RxNorm approximate-match API.
 - **Conversation memory**: per-session history stored in Postgres; old sessions are automatically compressed into summaries.
+- **Background answer persistence**: The SSE streaming endpoint saves both the user message and the AI answer to the DB in a background task — answers are saved even if the user closes the tab mid-generation.
 
 ### Upload Entry Points
 - **Upload page** — standard file picker
@@ -79,7 +85,9 @@ CREATE POLICY docs_user_isolation ON documents
   USING (user_id = current_setting('app.current_user_id', true)::uuid);
 ```
 
-The FastAPI auth middleware sets `app.current_user_id` on every DB connection from the decoded JWT, before any query executes. This makes cross-user data access impossible at the DB layer even if app-layer WHERE clauses were accidentally omitted.
+The FastAPI auth middleware sets `app.current_user_id` via `SET LOCAL` inside an explicit transaction on every DB connection from the decoded JWT. `SET LOCAL` is transaction-scoped — on commit the variable resets, preventing leakage to the next pooled connection.
+
+All vector search, keyword search, aggregation SQL, and document index queries include an explicit `WHERE user_id = $n::uuid` as defense-in-depth in addition to RLS.
 
 > **Production hardening**: For full enforcement, the FastAPI app should connect with a **low-privilege role** (no `BYPASSRLS`). Run `backend/create_vault_app_role.py` to create the `vault_app` role, then update `DATABASE_URL` to use it.
 
@@ -111,6 +119,7 @@ All retrieved document chunks are wrapped in `<document_content>` XML tags. The 
 - Neon account (free tier)
 - Groq API key (free tier)
 - Mistral API key (free tier)
+- Tavily API key (free tier, for web search)
 
 ### 1. Clone and install
 
@@ -132,6 +141,15 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 cp frontend/.env.local.example frontend/.env.local
+```
+
+Key backend env vars:
+```
+DATABASE_URL=         # Neon connection string
+NEXTAUTH_SECRET=      # Same secret as frontend
+GROQ_API_KEY=
+MISTRAL_API_KEY=
+TAVILY_API_KEY=
 ```
 
 ### 3. Set up Neon database
@@ -161,16 +179,27 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ```
 the-vault/
-├── frontend/           # Next.js App Router + Tailwind
-│   ├── app/
-│   ├── components/
-│   └── lib/
+├── frontend/           # Next.js App Router + Vanilla CSS
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── globals.css          # Design tokens + all animations
+│   │   │   ├── (app)/
+│   │   │   │   ├── chat/page.tsx    # AI chat with streaming + session restore
+│   │   │   │   ├── dashboard/page.tsx
+│   │   │   │   ├── upload/page.tsx
+│   │   │   │   └── settings/page.tsx
+│   │   ├── components/
+│   │   │   ├── ConfirmUploadModal.tsx  # Two-phase upload confirmation
+│   │   │   └── ui/
+│   │   └── lib/
+│   │       ├── useDocumentIngest.ts    # Upload state machine hook
+│   │       └── swrConfig.ts
 ├── backend/            # FastAPI Python
 │   ├── main.py
 │   ├── routers/
 │   │   ├── documents.py       # Upload, confirm, CRUD
-│   │   ├── query.py           # LangGraph agent endpoint
-│   │   └── conversations.py   # Session CRUD
+│   │   ├── query.py           # SSE streaming endpoint + background task
+│   │   └── conversations.py   # Session + messages CRUD
 │   ├── services/
 │   │   ├── ocr.py
 │   │   ├── embedder.py
@@ -178,14 +207,15 @@ the-vault/
 │   │   ├── pipeline.py        # Async ingestion orchestration
 │   │   └── field_extractor.py # LLM structured extraction
 │   ├── agents/
-│   │   └── vault_agent.py     # LangGraph: classify → retrieve/sql → generate
+│   │   └── vault_agent.py     # LangGraph: classify → retrieve/sql/web → generate
 │   ├── core/
-│   │   ├── auth.py            # JWT decode + RLS setter
+│   │   ├── auth.py            # JWT decode + RLS setter (SET LOCAL in transaction)
 │   │   ├── config.py
 │   │   └── rate_limit.py      # slowapi limiter
 │   ├── db/
 │   │   ├── schema.sql         # Full schema with RLS policies
-│   │   └── connection.py
+│   │   ├── connection.py      # Pool + set_rls_user
+│   │   └── vector_search.py   # Hybrid search (vector + FTS via RRF)
 │   └── tests/
 │       ├── test_security_rls.py       # RLS policy existence + isolation
 │       ├── test_prompt_injection.py   # Injection guard test
@@ -205,7 +235,7 @@ pytest tests/ -v
 ```
 
 | Test | What it verifies |
-|------|-----------------|
+|------|----------------|
 | `test_rls_policy_exists` | RLS is enabled on all 6 sensitive tables |
 | `test_rls_policies_created` | Named isolation policies exist and use `app.current_user_id` |
 | `test_rls_isolation_with_set_role` | Policy WHERE clause correctly scopes by user_id |

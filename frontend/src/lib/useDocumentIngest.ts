@@ -36,11 +36,11 @@ export function useDocumentIngest(token: string) {
             if (autoConfirmRef.current) {
               // User clicked Do It Yourself during analysis — auto-confirm now with extracted fields
               confirmUpload({
-                title: doc.original_name || "",
-                category: doc.category || "",
-                date: doc.txn_date || "",
-                vendor: doc.vendor || "",
-                amount: doc.amount ? parseFloat(doc.amount) : null,
+                title: doc.original_name || "Document",
+                category: doc.category || "other",
+                date: doc.txn_date || null,
+                vendor: doc.vendor || null,
+                amount: doc.amount !== null && doc.amount !== undefined ? parseFloat(doc.amount) : null,
               }, doc.id);
             } else {
               setStatus("awaiting_confirmation");
@@ -117,11 +117,11 @@ export function useDocumentIngest(token: string) {
     autoConfirmRef.current = true;
     if (status === "awaiting_confirmation" && document) {
       confirmUpload({
-        title: document.original_name || "",
-        category: document.category || "",
-        date: document.txn_date || "",
-        vendor: document.vendor || "",
-        amount: document.amount ? parseFloat(document.amount) : null,
+        title: document.original_name || "Document",
+        category: document.category || "other",
+        date: document.txn_date || null,
+        vendor: document.vendor || null,
+        amount: document.amount !== null && document.amount !== undefined ? parseFloat(document.amount) : null,
       }, document.id);
     }
   }, [status, document, confirmUpload]);

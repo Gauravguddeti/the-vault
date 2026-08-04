@@ -17,6 +17,20 @@ interface ConfirmUploadModalProps {
   isOpen: boolean;
 }
 
+// Defined outside component so it's stable across renders
+const FUNNY_PHRASES = [
+  "Extracting text...",
+  "Understanding language 🧠",
+  "Translating corporate jargon...",
+  "Bribing the AI with digital cookies 🍪",
+  "Reticulating splines...",
+  "Reading the fine print so you don't have to 🔍",
+  "Calculating the meaning of life (and this document) 🤖",
+  "Finding the hidden fees...",
+  "Squinting really hard at the blurry bits 👀",
+  "Brewing a fresh pot of data coffee ☕"
+];
+
 export default function ConfirmUploadModal({
   status,
   progress,
@@ -37,10 +51,24 @@ export default function ConfirmUploadModal({
     amount: "",
   });
   const [autoConfirmRequested, setAutoConfirmRequested] = useState(false);
+  const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
+
+  // Rotate loading phrases
+  useEffect(() => {
+    if (status === "analyzing" || status === "confirming") {
+      const interval = setInterval(() => {
+        setLoadingPhraseIndex(i => (i + 1) % FUNNY_PHRASES.length);
+      }, 2500);
+      return () => clearInterval(interval);
+    }
+  }, [status]);
 
   // Reset local state when modal opens/closes
   useEffect(() => {
-    if (!isOpen) setAutoConfirmRequested(false);
+    if (!isOpen) {
+      setAutoConfirmRequested(false);
+      setLoadingPhraseIndex(0);
+    }
   }, [isOpen]);
 
   // Pre-fill fields when document is ready for confirmation
@@ -91,10 +119,10 @@ export default function ConfirmUploadModal({
         {(status === "uploading" || status === "analyzing" || status === "confirming") && (
           <div className="flex flex-col items-center justify-center py-8 space-y-4">
             <div className="w-12 h-12 border-4 border-[var(--accent)]/30 border-t-[var(--accent)] rounded-full animate-spin" />
-            <p className="text-[var(--text-secondary)] text-sm">
+            <p className="text-[var(--text-secondary)] text-sm text-center px-4 h-10 flex items-center justify-center">
               {status === "uploading" ? `Uploading... ${progress}%` :
-               status === "analyzing" ? "Extracting text and identifying fields..." : 
-               "Indexing for search..."}
+               status === "analyzing" ? FUNNY_PHRASES[loadingPhraseIndex] : 
+               "Indexing for search... (almost done!)"}
             </p>
             {/* "Do it yourself!" — dismisses modal immediately. Processing continues in background.
                 The document card on the dashboard shows live status (Embedding… → Ready) via polling. */}
