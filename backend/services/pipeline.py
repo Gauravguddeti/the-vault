@@ -120,6 +120,37 @@ async def run_document_pipeline(
                 )
                 await _log_event(conn, doc_id, "extraction_success")
 
+                # ── Part 5: store low-confidence fields for confirmation ──────
+                # Any field with confidence < CONFIDENCE_THRESHOLD is written to
+                # unconfirmed_fields so the chat agent can gate answers on them.
+                low_conf = fields.get("low_confidence_fields", [])
+                if low_conf:
+                    for lc in low_conf:
+                        await conn.execute(
+                            """
+                            INSERT INTO unconfirmed_fields
+                                (document_id, user_id, field_name, raw_value,
+                                 confidence, status, item_index, possibly_cancelled)
+                            VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'pending', $6, $7)
+                            ON CONFLICT DO NOTHING
+                            """,
+                            doc_id, user_id,
+                            lc["field_name"],
+                            lc["raw_value"],
+                            lc["confidence"],
+                            lc.get("item_index"),
+                            lc.get("possibly_cancelled", False),
+                        )
+                    await _log_event(
+                        conn, doc_id, "low_confidence_fields_stored",
+                        f"{len(low_conf)} fields: {[lc['field_name'] for lc in low_conf]}"
+                    )
+                    logger.info(
+                        "[%s] Stored %d low-confidence fields for confirmation: %s",
+                        doc_id, len(low_conf), [lc["field_name"] for lc in low_conf],
+                    )
+
+
             if require_confirmation:
                 logger.info(f"[{doc_id}] Awaiting confirmation before chunking...")
                 await _update_status(conn, doc_id, "awaiting_confirmation")

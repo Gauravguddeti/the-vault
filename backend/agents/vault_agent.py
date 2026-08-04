@@ -49,6 +49,8 @@ class VaultState(TypedDict):
     is_general_knowledge: bool       # True when answer came from web_search (not vault docs)
     web_category: Optional[str]      # classified category of web_search query (e.g. "medical")
     rxnorm_note: str                 # Note about RxNorm term resolution, shown to user
+    confirmation_pending: Optional[Dict]  # {field_id, field_name, raw_value, corrected_value, original_question}
+    skip_confirmation_check: bool    # True when confirmation was just resolved — skip re-gate
 
 
 # ── Prompts ────────────────────────────────────────────────────────────
@@ -1021,46 +1023,363 @@ def route_query(state: VaultState) -> str:
     return "retrieve"               # lookup
 
 
-# ── Build graph ────────────────────────────────────────────────────────
+# ── Part 2: Confirmation-gate nodes ───────────────────────────────────
+
+_CONFIRMATION_YES = frozenset([
+    "yes", "yeah", "yep", "correct", "right", "that's right", "confirmed",
+    "sure", "ok", "okay", "yup", "exactly", "correct", "haan", "ha", "theek",
+    "sahi", "bilkul", "haan ji",
+])
+
+_CONFIRMATION_NO_PATTERN = r"(?:no|nope|nahi|nahin|not quite|wrong|incorrect|it'?s|its|actually|rather)\b"
+
+
+def _detect_confirmation_intent(text: str) -> tuple[str, str | None]:
+    """
+    Detect whether the user's text is a confirmation response.
+    Returns (intent, corrected_value) where intent is:
+      'yes'      — user confirmed the field is correct
+      'no'       — user rejected, corrected_value has their correction
+      'unclear'  — can't tell, need to re-prompt
+    """
+    import re as _re
+    t = text.strip().lower()
+
+    # Clear yes
+    if t in _CONFIRMATION_YES or any(t.startswith(w + " ") for w in _CONFIRMATION_YES):
+        return "yes", None
+
+    # Clear no / correction
+    if _re.search(_CONFIRMATION_NO_PATTERN, t, _re.IGNORECASE):
+        # Try to extract the corrected value — everything after "it's", "actually", "it is", etc.
+        correction_match = _re.search(
+            r"(?:it'?s|its|actually|rather|correct(?:ion)? is|should be|it is)\s+(.+)",
+            text, _re.IGNORECASE
+        )
+        corrected = correction_match.group(1).strip() if correction_match else text
+        return "no", corrected
+
+    # Short message that's not a clear yes — likely a direct correction
+    if len(t.split()) <= 6:
+        return "no", text.strip()
+
+    return "unclear", None
+
+
+async def check_confirmation_node(state: VaultState) -> VaultState:
+    """
+    Part 2 — Runs right after classify_query.
+
+    If there's a pending confirmation in the session (stored in conversation_sessions.confirmation_pending),
+    AND the user's message looks like a confirmation response (yes/no/correction),
+    this node:
+      1. Resolves the pending unconfirmed_field (sets status to 'confirmed' or 'corrected')
+      2. Clears the confirmation_pending from the session
+      3. Substitutes the ORIGINAL question back as the question to answer
+      4. Sets skip_confirmation_check=True so confirmation_gate_node won't re-trigger
+
+    If no pending confirmation OR message doesn't look like a response, passes through unchanged.
+    """
+    conn = state["conn"]
+    session_id = state["session_id"]
+    question = state["question"]
+
+    # Check if this session has a pending confirmation
+    try:
+        session_row = await conn.fetchrow(
+            "SELECT confirmation_pending FROM conversation_sessions WHERE id=$1::uuid",
+            session_id,
+        )
+    except Exception as e:
+        logger.warning(f"[CONFIRM_CHECK] Could not read session: {e}")
+        return {**state, "confirmation_pending": None, "skip_confirmation_check": False}
+
+    pending = None
+    if session_row and session_row["confirmation_pending"]:
+        raw = session_row["confirmation_pending"]
+        pending = raw if isinstance(raw, dict) else json.loads(raw)
+
+    if not pending:
+        return {**state, "confirmation_pending": None, "skip_confirmation_check": False}
+
+    # We have a pending confirmation — does this message look like a response?
+    intent, corrected_value = _detect_confirmation_intent(question)
+
+    if intent == "unclear":
+        # User sent something that doesn't clearly confirm or correct.
+        # Re-prompt — do NOT clear the pending field, do NOT proceed to retrieval.
+        logger.info("[CONFIRM_CHECK] Response unclear — re-prompting")
+        field_name = pending.get("field_name", "unknown field")
+        display = pending.get("corrected_value") or pending.get("raw_value", "")
+        re_prompt = (
+            f"I need a clear answer before I can proceed. "
+            f"I read **{field_name}** as \"**{display}**\" — is that correct? "
+            f"Just say yes or correct me (e.g. \"No, it's Gliclazide\")."
+        )
+        # Store re-prompt as answer and skip to save_memory
+        return {
+            **state,
+            "answer": re_prompt,
+            "sources": [],
+            "thinking": "",
+            "query_type": "chat",   # treat as chat so no retrieval
+            "confirmation_pending": pending,
+            "skip_confirmation_check": True,
+            "is_general_knowledge": False,
+        }
+
+    # Resolve the field
+    field_id = pending.get("field_id")
+    if field_id:
+        try:
+            if intent == "yes":
+                confirmed_val = pending.get("corrected_value") or pending.get("raw_value")
+                await conn.execute(
+                    "UPDATE unconfirmed_fields SET status='confirmed', confirmed_value=$1, updated_at=NOW() WHERE id=$2::uuid",
+                    confirmed_val, field_id,
+                )
+                logger.info("[CONFIRM_CHECK] Field %s confirmed as %r", field_id, confirmed_val)
+            else:
+                # User provided a correction
+                await conn.execute(
+                    "UPDATE unconfirmed_fields SET status='corrected', confirmed_value=$1, updated_at=NOW() WHERE id=$2::uuid",
+                    corrected_value, field_id,
+                )
+                logger.info("[CONFIRM_CHECK] Field %s corrected to %r", field_id, corrected_value)
+        except Exception as e:
+            logger.warning(f"[CONFIRM_CHECK] Could not update field status: {e}")
+
+    # Clear the pending confirmation from the session
+    try:
+        await conn.execute(
+            "UPDATE conversation_sessions SET confirmation_pending=NULL WHERE id=$1::uuid",
+            session_id,
+        )
+    except Exception as e:
+        logger.warning(f"[CONFIRM_CHECK] Could not clear confirmation_pending: {e}")
+
+    # Resume with the original question
+    original_question = pending.get("original_question", question)
+    confirmed_name = corrected_value if intent == "no" else (pending.get("corrected_value") or pending.get("raw_value"))
+    ack = f"Got it — noted as **{confirmed_name}**. " if confirmed_name else ""
+    logger.info("[CONFIRM_CHECK] Confirmed. Resuming with original question: %r", original_question)
+
+    return {
+        **state,
+        "question": original_question,
+        "confirmation_pending": None,
+        "skip_confirmation_check": True,  # skip gate on this pass
+        # Prepend acknowledgement to the final answer — will be prepended in generate_answer
+        "rxnorm_note": ack,  # reuse this field as a prefix note
+    }
+
+
+def route_after_confirmation(state: VaultState) -> str:
+    """
+    After check_confirmation: if the re-prompt path was taken (query_type='chat' + skip=True
+    and we already have an answer), go straight to save_memory.
+    Otherwise route normally through classify.
+    """
+    # Re-prompt path: answer already set by check_confirmation_node
+    if state.get("skip_confirmation_check") and state.get("answer") and state.get("query_type") == "chat":
+        return "save_memory"
+    # Normal flow
+    return route_query(state)
+
+
+async def confirmation_gate_node(state: VaultState) -> VaultState:
+    """
+    Part 2 — Runs after retrieve/web_search, before generate_answer.
+
+    Checks if any document referenced in retrieved chunks has pending unconfirmed_fields.
+    If so, interrupts the flow:
+      1. Stores the current question in conversation_sessions.confirmation_pending
+      2. Returns a confirmation prompt as the answer instead of the real answer
+      3. Sets query_type='chat' so grade_answer and save_memory just pass it through
+
+    Skipped entirely if:
+      - skip_confirmation_check is True (we just resolved a confirmation)
+      - No chunks were retrieved (nothing to gate on)
+      - No pending fields found
+    """
+    if state.get("skip_confirmation_check"):
+        return state
+
+    chunks = state.get("chunks", [])
+    web_results = state.get("web_results", [])
+    conn = state["conn"]
+    session_id = state["session_id"]
+    question = state["question"]
+
+    # Only gate on lookup and web_search paths (aggregation/chat don't need it)
+    if state.get("query_type") not in ("lookup", "web_search"):
+        return state
+
+    # Collect document IDs from retrieved chunks
+    doc_ids = list({c["document_id"] for c in chunks if c.get("document_id")})
+    if not doc_ids and not web_results:
+        return state  # nothing retrieved, can't gate
+
+    if not doc_ids:
+        return state  # web_search with no vault chunks — skip gate
+
+    # Check for pending unconfirmed fields on these documents
+    try:
+        placeholders = ", ".join(f"${i+1}::uuid" for i in range(len(doc_ids)))
+        rows = await conn.fetch(
+            f"""
+            SELECT id::text, document_id::text, field_name, raw_value, corrected_value,
+                   confidence, possibly_cancelled
+            FROM unconfirmed_fields
+            WHERE document_id IN ({placeholders})
+              AND status = 'pending'
+            ORDER BY confidence ASC
+            LIMIT 1
+            """,
+            *doc_ids,
+        )
+    except Exception as e:
+        logger.warning(f"[CONFIRM_GATE] Could not query unconfirmed_fields: {e}")
+        return state
+
+    if not rows:
+        return state  # no pending fields — proceed normally
+
+    # Found a pending field — interrupt and ask for confirmation
+    field = dict(rows[0])
+    field_id = field["id"]
+    field_name = field["field_name"]
+    raw_val = field["raw_value"]
+    corrected_val = field.get("corrected_value") or raw_val
+    possibly_cancelled = field.get("possibly_cancelled", False)
+
+    # Build the display name (item[0].name → "medication name")
+    display_field = field_name
+    if "item" in field_name and ".name" in field_name:
+        display_field = "medication name"
+    elif field_name == "vendor":
+        display_field = "vendor/supplier name"
+    elif field_name == "amount":
+        display_field = "total amount"
+
+    # Build cancellation note if applicable
+    cancelled_note = ""
+    if possibly_cancelled:
+        cancelled_note = " *(Note: this item may have a strikethrough or cancellation mark on the document.)*"
+
+    autocorrect_note = f'  (auto-corrected from: "{raw_val}")' if corrected_val != raw_val else ""
+    confirmation_prompt = (
+        f"Before I answer \u2014 the scan wasn't perfectly clear here.\n\n"
+        f"I read the **{display_field}** as \"**{corrected_val}**\""
+        f"{autocorrect_note}"
+        f".{cancelled_note}\n\n"
+        f"Is that right? (Say *yes* to confirm, or correct me \u2014 e.g. \"No, it's Metformin\")"
+    )
+
+
+    # Store the pending confirmation in the session so it survives until next message
+    pending_data = json.dumps({
+        "field_id": field_id,
+        "field_name": display_field,
+        "raw_value": raw_val,
+        "corrected_value": corrected_val,
+        "original_question": question,
+    })
+    try:
+        await conn.execute(
+            "UPDATE conversation_sessions SET confirmation_pending=$1::jsonb WHERE id=$2::uuid",
+            pending_data, session_id,
+        )
+        logger.info(
+            "[CONFIRM_GATE] Interrupting for confirmation of field=%r raw=%r corrected=%r",
+            field_name, raw_val, corrected_val,
+        )
+    except Exception as e:
+        logger.warning(f"[CONFIRM_GATE] Could not store confirmation_pending: {e}")
+        return state  # fail open — don't block the user
+
+    return {
+        **state,
+        "answer": confirmation_prompt,
+        "sources": [],
+        "thinking": "",
+        "query_type": "chat",          # treat as chat — skip grade_answer domain check
+        "is_general_knowledge": False,
+        "skip_confirmation_check": True,
+        "confirmation_pending": json.loads(pending_data),
+    }
+
+
+def route_after_retrieval(state: VaultState) -> str:
+    """
+    After retrieve/sql_aggregate/web_search:
+    If confirmation_gate set an answer (query_type flipped to 'chat' + skip=True),
+    skip generate_answer and go straight to save_memory.
+    Otherwise proceed to generate_answer.
+    """
+    if state.get("skip_confirmation_check") and state.get("answer") and state.get("query_type") == "chat":
+        return "save_memory"
+    return "generate_answer"
+
+
 
 def build_vault_agent():
     """
     Construct and compile the LangGraph agent.
 
-    Graph flow (Corrective-RAG, Part 3):
-      load_memory → classify_query
+    Graph flow (Corrective-RAG + Confirmation Loop, Parts 2/3/5):
+      load_memory → classify_query → check_confirmation
+        → [re-prompt path]    → save_memory  (confirmation was unclear, re-ask)
         → [chat|out_of_scope] → generate_answer → grade_answer → save_memory
-        → [lookup]            → retrieve → generate_answer → grade_answer → save_memory
-        → [aggregation]       → sql_aggregate → generate_answer → grade_answer → save_memory
-        → [web_search]        → web_search → generate_answer → grade_answer → save_memory
+        → [lookup]            → retrieve → confirmation_gate
+                               → [gate triggered] → save_memory  (blocked, awaiting confirmation)
+                               → [gate clear]     → generate_answer → grade_answer → save_memory
+        → [aggregation]       → sql_aggregate → confirmation_gate → generate_answer ...
+        → [web_search]        → web_search → confirmation_gate → generate_answer ...
     """
     graph = StateGraph(VaultState)
 
     graph.add_node("load_memory", load_memory_node)
     graph.add_node("classify_query", classify_query_node)
+    graph.add_node("check_confirmation", check_confirmation_node)  # Part 2: resolve confirmations
     graph.add_node("retrieve", retrieve_node)
     graph.add_node("sql_aggregate", sql_aggregate_node)
     graph.add_node("web_search", web_search_node)
+    graph.add_node("confirmation_gate", confirmation_gate_node)    # Part 2: gate before generate
     graph.add_node("generate_answer", generate_answer_node)
-    graph.add_node("grade_answer", grade_answer_node)   # Corrective-RAG grader
+    graph.add_node("grade_answer", grade_answer_node)              # Part 3: Corrective-RAG grader
     graph.add_node("save_memory", save_memory_node)
 
     graph.set_entry_point("load_memory")
     graph.add_edge("load_memory", "classify_query")
-    graph.add_conditional_edges("classify_query", route_query, {
-        "generate_answer": "generate_answer",
+    graph.add_edge("classify_query", "check_confirmation")
+
+    # After check_confirmation: re-prompt path goes to save_memory; else route normally
+    graph.add_conditional_edges("check_confirmation", route_after_confirmation, {
+        "save_memory": "save_memory",
+        "generate_answer": "generate_answer",   # chat/out_of_scope
         "retrieve": "retrieve",
         "sql_aggregate": "sql_aggregate",
         "web_search": "web_search",
     })
-    graph.add_edge("retrieve", "generate_answer")
-    graph.add_edge("sql_aggregate", "generate_answer")
-    graph.add_edge("web_search", "generate_answer")
-    graph.add_edge("generate_answer", "grade_answer")   # ← grader inserted here
+
+    # After retrieval: confirmation gate before generation
+    graph.add_edge("retrieve", "confirmation_gate")
+    graph.add_edge("sql_aggregate", "confirmation_gate")
+    graph.add_edge("web_search", "confirmation_gate")
+
+    # After gate: if blocked go to save_memory, else generate
+    graph.add_conditional_edges("confirmation_gate", route_after_retrieval, {
+        "save_memory": "save_memory",
+        "generate_answer": "generate_answer",
+    })
+
+    graph.add_edge("generate_answer", "grade_answer")  # Corrective-RAG grader
     graph.add_edge("grade_answer", "save_memory")
     graph.add_edge("save_memory", END)
 
     return graph.compile()
+
 
 
 # Singleton agent instance
@@ -1085,6 +1404,11 @@ async def build_streaming_context(
     Runs memory load, classification, and retrieval — everything except the
     final LLM call. Returns a dict with the assembled messages list, sources,
     query_type, etc. for the streaming endpoint to use with stream=True.
+
+    Part 2 addition: also runs check_confirmation_node and confirmation_gate_node.
+    If a confirmation prompt is generated, returns pre_answered=True with the
+    answer already set — the SSE endpoint should stream it directly without
+    an LLM call.
     """
     # Re-use the node functions directly rather than the full graph
     state: VaultState = {
@@ -1103,12 +1427,35 @@ async def build_streaming_context(
         "sources": [],
         "context_truncated": False,
         "user_memory": "",
+        "is_general_knowledge": False,
+        "web_category": None,
+        "rxnorm_note": "",
+        "confirmation_pending": None,
+        "skip_confirmation_check": False,
     }
 
     state = await load_memory_node(state)
     state = await classify_query_node(state)
 
+    # ── Part 2: resolve any pending confirmation first ─────────────────
+    state = await check_confirmation_node(state)
+
+    # If check_confirmation set a re-prompt answer (unclear response), return it directly
+    if state.get("skip_confirmation_check") and state.get("answer") and state.get("query_type") == "chat":
+        return {
+            "messages": [],
+            "sources": [],
+            "query_type": "chat",
+            "thinking": "",
+            "context_truncated": False,
+            "has_history": bool(state.get("history")),
+            "is_general_knowledge": False,
+            "pre_answered": True,          # SSE endpoint: don't call LLM, stream this directly
+            "pre_answer": state["answer"],
+        }
+
     qt = state["query_type"]
+
     if qt == "aggregation":
         state = await sql_aggregate_node(state)
     elif qt == "lookup":
@@ -1117,11 +1464,28 @@ async def build_streaming_context(
         state = await web_search_node(state)
     # chat and out_of_scope skip retrieval
 
+    # ── Part 2: confirmation gate before generation ────────────────────
+    if qt in ("lookup", "web_search", "aggregation"):
+        state = await confirmation_gate_node(state)
+        # If gate triggered (answer already set), return it directly — no LLM needed
+        if state.get("skip_confirmation_check") and state.get("answer"):
+            return {
+                "messages": [],
+                "sources": [],
+                "query_type": "chat",
+                "thinking": "",
+                "context_truncated": False,
+                "has_history": bool(state.get("history")),
+                "is_general_knowledge": False,
+                "pre_answered": True,
+                "pre_answer": state["answer"],
+            }
+
     # Build the LLM messages exactly as generate_answer_node does
     chunks = state.get("chunks", [])
     sql_result = state.get("sql_result")
     history = state.get("history", [])
-    
+
     sys_content = f"{SYSTEM_PROMPT}\n\n[USER PREFERENCES — behavioral context only, not a source of facts]\n{state.get('user_memory', 'None')}"
     oos_content = f"{OUT_OF_SCOPE_SYSTEM}\n\n[USER PREFERENCES — behavioral context only, not a source of facts]\n{state.get('user_memory', 'None')}"
 
@@ -1135,8 +1499,11 @@ async def build_streaming_context(
             "messages": messages,
             "sources": [],
             "query_type": qt,
+            "thinking": "",
             "context_truncated": False,
             "has_history": bool(history),
+            "is_general_knowledge": False,
+            "pre_answered": False,
         }
 
     if qt == "lookup" and not chunks:
@@ -1150,13 +1517,17 @@ async def build_streaming_context(
             "messages": messages,
             "sources": [],
             "query_type": qt,
+            "thinking": "",
             "context_truncated": False,
             "has_history": bool(history),
+            "is_general_knowledge": False,
+            "pre_answered": False,
         }
 
     # ── Web search branch ─────────────────────────────────────────────
     if qt == "web_search":
         web_results = state.get("web_results", [])
+        rxnorm_note = state.get("rxnorm_note", "")
         web_system = (
             "You are a knowledgeable assistant that answers questions using the web search results provided below. "
             "Always cite the source by name/title. Be concise and accurate. "
@@ -1189,8 +1560,12 @@ async def build_streaming_context(
             "messages": messages,
             "sources": web_sources,
             "query_type": qt,
+            "thinking": "",
             "context_truncated": False,
             "has_history": bool(history),
+            "is_general_knowledge": True,
+            "rxnorm_note": rxnorm_note,
+            "pre_answered": False,
         }
 
     context_parts = []
@@ -1224,10 +1599,12 @@ async def build_streaming_context(
             messages.append({"role": msg["role"], "content": msg["content"]})
 
     index_context = f"[Live Document Index (Recent Uploads)]\n{state.get('document_index', 'None')}\n"
+    # Use the rewritten question (set by check_confirmation if a prior answer was confirmed)
+    effective_question = state.get("question", question)
     if context:
-        user_content = f"{index_context}\nContext from documents:\n<document_content>\n{context}\n</document_content>\n\nQuestion: {question}"
+        user_content = f"{index_context}\nContext from documents:\n<document_content>\n{context}\n</document_content>\n\nQuestion: {effective_question}"
     else:
-        user_content = f"{index_context}\nQuestion: {question}"
+        user_content = f"{index_context}\nQuestion: {effective_question}"
     messages.append({"role": "user", "content": user_content})
 
     sources = [
@@ -1263,11 +1640,18 @@ async def build_streaming_context(
                 refined_note = (
                     f"[Internal reasoning completed. Summary: {thinking_text[:300]}]\n\n"
                     f"Now write the final answer for the user based on the above reasoning.\n"
-                    f"Question: {question}"
+                    f"Question: {effective_question}"
                 )
                 messages[-1] = {"role": "user", "content": refined_note}
         except Exception as e:
             logger.warning(f"Thinking step failed in streaming context: {e}")
+
+    # Prepend rxnorm_note / confirmation ack to the user message if set
+    rxnorm_note = state.get("rxnorm_note", "")
+    if rxnorm_note and messages:
+        # Insert as a note at the start of the final user turn
+        last_msg = messages[-1]
+        messages[-1] = {**last_msg, "content": f"[{rxnorm_note}]\n\n{last_msg['content']}"}
 
     return {
         "messages": messages,
@@ -1276,5 +1660,8 @@ async def build_streaming_context(
         "thinking": thinking_text,
         "context_truncated": state.get("context_truncated", False),
         "has_history": bool(history),
+        "is_general_knowledge": state.get("is_general_knowledge", False),
+        "pre_answered": False,
     }
+
 

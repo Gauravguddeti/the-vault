@@ -188,13 +188,14 @@ CREATE OR REPLACE TRIGGER set_user_memory_updated_at
 
 -- ── Conversation Sessions ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS conversation_sessions (
-    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title         TEXT,           -- auto-generated from first user message
-    summary       TEXT,           -- compressed summary of old messages (> 7 days)
-    message_count INT NOT NULL DEFAULT 0,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title                TEXT,           -- auto-generated from first user message
+    summary              TEXT,           -- compressed summary of old messages (> 7 days)
+    message_count        INT NOT NULL DEFAULT 0,
+    confirmation_pending JSONB DEFAULT NULL,  -- Part 2: pending field confirmation gate
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE conversation_sessions ENABLE ROW LEVEL SECURITY;
@@ -254,3 +255,30 @@ CREATE OR REPLACE TRIGGER set_conv_sessions_updated_at
 --    WHERE schemaname='public' AND rowsecurity=true;    -- 5 RLS tables
 --  SELECT indexname FROM pg_indexes WHERE tablename='chunks'; -- includes ivfflat
 -- ══════════════════════════════════════════════════════════════════════
+
+-- ── unconfirmed_fields (Parts 2 + 5) ────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS unconfirmed_fields (
+    id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id        UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id            UUID NOT NULL,
+    field_name         TEXT NOT NULL,         -- e.g. 'vendor', 'amount', 'item[0].name'
+    raw_value          TEXT NOT NULL,         -- original OCR text
+    corrected_value    TEXT,                  -- auto-corrected value (RxNorm etc.) or null
+    confirmed_value    TEXT,                  -- final trusted value after user confirms
+    confidence         FLOAT NOT NULL,        -- 0.0-1.0
+    status             TEXT NOT NULL DEFAULT 'pending'
+                           CHECK (status IN ('pending', 'confirmed', 'corrected')),
+    item_index         INT,                   -- for item-level fields
+    possibly_cancelled BOOLEAN DEFAULT FALSE,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE unconfirmed_fields ENABLE ROW LEVEL SECURITY;
+ALTER TABLE unconfirmed_fields FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY unconfirmed_fields_isolation ON unconfirmed_fields
+    USING (user_id = current_setting('app.current_user_id', true)::uuid);
+
+CREATE INDEX IF NOT EXISTS idx_unconfirmed_document_id ON unconfirmed_fields(document_id);
+CREATE INDEX IF NOT EXISTS idx_unconfirmed_user_status ON unconfirmed_fields(user_id, status);

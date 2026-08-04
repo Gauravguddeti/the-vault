@@ -64,6 +64,8 @@ async def run_query(
         "is_general_knowledge": False,
         "web_category": None,
         "rxnorm_note": "",
+        "confirmation_pending": None,
+        "skip_confirmation_check": False,
     })
 
     await conn.execute(
@@ -125,27 +127,41 @@ async def run_query_stream(
         from core.config import settings
 
         full_answer = []
-        try:
-            client = AsyncGroq(api_key=settings.GROQ_API_KEY)
-            stream = await client.chat.completions.create(
-                model=settings.GROQ_MODEL,
-                messages=context["messages"],
-                temperature=0.7 if context["query_type"] == "chat" else 0.1,
-                max_tokens=2048,
-                stream=True,
-            )
 
-            async for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    full_answer.append(delta)
-                    payload = json.dumps({"token": delta, "done": False})
-                    yield f"data: {payload}\n\n"
+        # ── Part 2: pre_answered path (confirmation prompt) ───────────────
+        # The gate already produced a static message — stream it word-by-word
+        # without an LLM call so the UI experience is identical to a normal reply.
+        if context.get("pre_answered"):
+            pre_answer = context.get("pre_answer", "")
+            words = pre_answer.split(" ")
+            for i, word in enumerate(words):
+                token = word if i == 0 else " " + word
+                payload = json.dumps({"token": token, "done": False})
+                yield f"data: {payload}\n\n"
+            full_answer.append(pre_answer)
+        else:
+            # ── Normal LLM streaming path ─────────────────────────────────
+            try:
+                client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+                stream = await client.chat.completions.create(
+                    model=settings.GROQ_MODEL,
+                    messages=context["messages"],
+                    temperature=0.7 if context["query_type"] == "chat" else 0.1,
+                    max_tokens=2048,
+                    stream=True,
+                )
 
-        except Exception as e:
-            logger.error(f"Streaming LLM call failed: {e}", exc_info=True)
-            err_payload = json.dumps({"token": "\n\n[Error generating response]", "done": False})
-            yield f"data: {err_payload}\n\n"
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        full_answer.append(delta)
+                        payload = json.dumps({"token": delta, "done": False})
+                        yield f"data: {payload}\n\n"
+
+            except Exception as e:
+                logger.error(f"Streaming LLM call failed: {e}", exc_info=True)
+                err_payload = json.dumps({"token": "\n\n[Error generating response]", "done": False})
+                yield f"data: {err_payload}\n\n"
 
         # Save the complete answer to the DB
         answer_text = "".join(full_answer)
@@ -205,6 +221,7 @@ async def run_query_stream(
             "is_general_knowledge": context.get("is_general_knowledge", False),
         })
         yield f"data: {done_payload}\n\n"
+
 
     return StreamingResponse(
         event_generator(),
