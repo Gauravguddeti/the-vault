@@ -223,8 +223,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="md:hidden bottom-sheet">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                style={{ background: "rgba(225, 85, 59,0.15)", border: "1px solid rgba(225, 85, 59,0.3)" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                 </svg>
               </div>
@@ -259,8 +259,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-scale-in">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  style={{ background: "rgba(225, 85, 59,0.15)", border: "1px solid rgba(225, 85, 59,0.3)" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   </svg>
                 </div>
@@ -297,19 +297,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* Global drag-drop overlay */}
       {globalDragging && (
         <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center pointer-events-none"
-          style={{ background: "rgba(99,102,241,0.12)", border: "3px dashed #6366f1" }}>
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          style={{ background: "rgba(225, 85, 59,0.12)", border: "3px dashed var(--accent)" }}>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
           </svg>
-          <p className="text-indigo-300 font-semibold text-xl mt-4">Drop anywhere to add to Vault</p>
+          <p className="text-[var(--accent)] font-semibold text-xl mt-4">Drop anywhere to add to Vault</p>
         </div>
       )}
 
       {/* Offline queue indicator */}
       {offlineQueueCount > 0 && (
         <div className="fixed top-4 right-4 z-50 px-3 py-2 rounded-lg text-xs font-medium"
-          style={{ background: "rgba(234,179,8,0.15)", border: "1px solid rgba(234,179,8,0.3)", color: "#facc15" }}>
+          style={{ background: "rgba(178, 138, 68,0.15)", border: "1px solid rgba(178, 138, 68,0.3)", color: "var(--status-warning)" }}>
           {offlineQueueCount} file{offlineQueueCount > 1 ? "s" : ""} queued — upload will resume when online
         </div>
       )}
@@ -319,7 +319,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         style={{ background: "var(--surface-1)", borderRight: "1px solid var(--border)" }}>
         <div className="flex items-center gap-3 px-6 py-5" style={{ borderBottom: "1px solid var(--border)" }}>
           <div className="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"
-            style={{ background: "var(--accent)", boxShadow: "0 4px 0 #8a000e" }}>
+            style={{ background: "var(--accent)", boxShadow: "0 4px 0 var(--status-error)" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
@@ -334,9 +334,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <Link key={item.href} href={item.href}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150"
                 style={{
-                  background: active ? "rgba(99,102,241,0.15)" : "transparent",
-                  color: active ? "#818cf8" : "var(--text-secondary)",
-                  border: active ? "1px solid rgba(99,102,241,0.25)" : "1px solid transparent",
+                  background: active ? "rgba(225, 85, 59,0.15)" : "transparent",
+                  color: active ? "var(--accent)" : "var(--text-secondary)",
+                  border: active ? "1px solid rgba(225, 85, 59,0.25)" : "1px solid transparent",
                 }}>
                 {item.icon}
                 {item.label}
@@ -360,7 +360,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           }}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm transition-all"
             style={{ color: "var(--text-muted)" }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.08)"; }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--status-error)"; (e.currentTarget as HTMLElement).style.background = "rgba(154, 66, 58,0.08)"; }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" />
@@ -379,7 +379,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {navItems.map(item => (
             <Link key={item.href} href={item.href}
               className="p-2 rounded-lg"
-              style={{ color: pathname.startsWith(item.href) ? "#818cf8" : "var(--text-muted)" }}>
+              style={{ color: pathname.startsWith(item.href) ? "var(--accent)" : "var(--text-muted)" }}>
               {item.icon}
             </Link>
           ))}
@@ -398,7 +398,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           className="md:hidden fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl btn-press"
           style={{
             background: "var(--accent)",
-            boxShadow: "0 8px 0 #8a000e, 0 16px 40px rgba(194,1,20,0.4)",
+            boxShadow: "0 8px 0 var(--status-error), 0 16px 40px rgba(194,1,20,0.4)",
           }}
           title="Scan document"
           aria-label="Scan document">
@@ -484,7 +484,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="px-4 py-4 space-y-3" style={{ borderTop: "1px solid var(--border)" }}>
             {!isOnline && (
               <div className="px-3 py-2 rounded-lg text-xs text-center"
-                style={{ background: "rgba(234,179,8,0.1)", border: "1px solid rgba(234,179,8,0.3)", color: "#facc15" }}>
+                style={{ background: "rgba(178, 138, 68,0.1)", border: "1px solid rgba(178, 138, 68,0.3)", color: "var(--status-warning)" }}>
                 You're offline — scan will be queued and uploaded when reconnected
               </div>
             )}

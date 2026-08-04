@@ -42,7 +42,7 @@ export default function RegisterPage() {
       <div className="relative w-full max-w-md animate-slide-up">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
-            style={{ background: "var(--accent)", boxShadow: "0 4px 0 #8a000e" }}>
+            style={{ background: "var(--accent)", boxShadow: "0 4px 0 var(--status-error)" }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
             </svg>
@@ -55,7 +55,7 @@ export default function RegisterPage() {
           <h2 className="text-xl font-semibold mb-6 text-center">Create account</h2>
 
           {error && (
-            <div className="mb-4 p-3 rounded-lg text-sm" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}>
+            <div className="mb-4 p-3 rounded-lg text-sm" style={{ background: "rgba(154, 66, 58,0.1)", border: "1px solid rgba(154, 66, 58,0.3)", color: "var(--status-error)" }}>
               {error}
             </div>
           )}

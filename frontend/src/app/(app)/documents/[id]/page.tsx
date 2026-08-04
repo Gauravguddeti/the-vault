@@ -76,7 +76,7 @@ export default function DocumentDetailPage() {
           <div className="flex items-start gap-4 min-w-0">
             <div className="w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center"
               style={{ background: "var(--surface-3)" }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
               </svg>
             </div>
@@ -93,9 +93,9 @@ export default function DocumentDetailPage() {
           </div>
           <button onClick={handleDelete} disabled={deleting}
             className="flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all"
-            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.2)"}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"}>
+            style={{ background: "rgba(154, 66, 58,0.1)", border: "1px solid rgba(154, 66, 58,0.3)", color: "var(--status-error)" }}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgba(154, 66, 58,0.2)"}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "rgba(154, 66, 58,0.1)"}>
             {deleting ? "Deleting…" : "Delete"}
           </button>
         </div>
@@ -118,7 +118,7 @@ export default function DocumentDetailPage() {
 
       {/* Error */}
       {doc.error_message && (
-        <div className="rounded-xl p-4 mb-6 text-sm" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}>
+        <div className="rounded-xl p-4 mb-6 text-sm" style={{ background: "rgba(154, 66, 58,0.1)", border: "1px solid rgba(154, 66, 58,0.3)", color: "var(--status-error)" }}>
           <strong>Processing error:</strong> {doc.error_message}
         </div>
       )}

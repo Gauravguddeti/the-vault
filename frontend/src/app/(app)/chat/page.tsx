@@ -378,9 +378,9 @@ export default function ChatPage() {
         <div className="p-3 whitespace-nowrap min-w-[16rem]">
           <button onClick={newChat}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all"
-            style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", color: "#818cf8" }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(99,102,241,0.25)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "rgba(99,102,241,0.15)"; (e.currentTarget as HTMLElement).style.transform = "none"; }}>
+            style={{ background: "rgba(225, 85, 59,0.15)", border: "1px solid rgba(225, 85, 59,0.3)", color: "var(--accent)" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(225, 85, 59,0.25)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "rgba(225, 85, 59,0.15)"; (e.currentTarget as HTMLElement).style.transform = "none"; }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
@@ -399,11 +399,11 @@ export default function ChatPage() {
             <div key={s.id} onClick={() => selectSession(s.id)}
               className="group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-all"
               style={{
-                background: activeId === s.id ? "rgba(99,102,241,0.15)" : "transparent",
-                border: activeId === s.id ? "1px solid rgba(99,102,241,0.25)" : "1px solid transparent",
+                background: activeId === s.id ? "rgba(225, 85, 59,0.15)" : "transparent",
+                border: activeId === s.id ? "1px solid rgba(225, 85, 59,0.25)" : "1px solid transparent",
               }}>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate" style={{ color: activeId === s.id ? "#818cf8" : "var(--text-secondary)" }}>
+                <p className="text-sm font-medium truncate" style={{ color: activeId === s.id ? "var(--accent)" : "var(--text-secondary)" }}>
                   {s.title || "New conversation"}
                 </p>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>{s.message_count} messages</p>
@@ -411,7 +411,7 @@ export default function ChatPage() {
               <button onClick={e => deleteSession(s.id, e)}
                 disabled={deletingId === s.id}
                 className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-2 -mr-2 rounded transition-colors" style={{ color: "var(--text-muted)" }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "#f87171"}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--status-error)"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"}>
                 {deletingId === s.id ? (
                   <div className="w-3 h-3 border-2 border-[var(--text-muted)] border-t-[var(--accent)] rounded-full animate-spin" />
@@ -453,16 +453,16 @@ export default function ChatPage() {
         {/* Drop overlay */}
         {chatDragging && (
           <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
-            style={{ background: "rgba(99,102,241,0.12)", border: "2px dashed #6366f1" }}>
-            <p className="text-indigo-300 font-medium text-lg">Drop to attach to chat</p>
+            style={{ background: "rgba(225, 85, 59,0.12)", border: "2px dashed var(--accent)" }}>
+            <p className="text-[var(--accent)] font-medium text-lg">Drop to attach to chat</p>
           </div>
         )}
 
         {!activeId ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-6 animate-fade-in">
             <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-6"
-              style={{ background: "rgba(194,1,20,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              style={{ background: "rgba(194,1,20,0.15)", border: "1px solid rgba(225, 85, 59,0.3)" }}>
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
             </div>
@@ -493,7 +493,7 @@ export default function ChatPage() {
                     border: "1px solid var(--border)",
                     color: "var(--text-secondary)",
                   }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(99,102,241,0.4)"; (e.currentTarget as HTMLElement).style.color = "#818cf8"; }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(225, 85, 59,0.4)"; (e.currentTarget as HTMLElement).style.color = "var(--accent)"; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)"; }}
                 >
                   <span style={{ color: "var(--text-muted)" }}>Try: </span>{prompt}
@@ -528,7 +528,7 @@ export default function ChatPage() {
                   style={{ animationDelay: `${Math.min(i * 20, 100)}ms`, animationFillMode: "both" }}>
                   {msg.role === "assistant" && (
                     <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mr-3 mt-1"
-                      style={{ background: "var(--accent)", boxShadow: "0 4px 0 #8a000e" }}>
+                      style={{ background: "var(--accent)", boxShadow: "0 4px 0 var(--status-error)" }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
                       </svg>
@@ -538,7 +538,7 @@ export default function ChatPage() {
                     <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
                       style={
                         msg.role === "user"
-                          ? { background: msg.attachmentName ? "rgba(99,102,241,0.2)" : "var(--accent)", color: "white", borderBottomRightRadius: 4 }
+                          ? { background: msg.attachmentName ? "rgba(225, 85, 59,0.2)" : "var(--accent)", color: "white", borderBottomRightRadius: 4 }
                           : { background: "var(--surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderBottomLeftRadius: 4 }
                       }>
                       {msg.content}
@@ -551,7 +551,7 @@ export default function ChatPage() {
                           <button id="chat-vault-confirm-btn"
                             onClick={startVaultUpload}
                             className="text-xs px-3 py-1.5 rounded-lg font-medium btn-press"
-                            style={{ background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.4)", color: "#818cf8" }}>
+                            style={{ background: "rgba(225, 85, 59,0.2)", border: "1px solid rgba(225, 85, 59,0.4)", color: "var(--accent)" }}>
                             Upload to Vault
                           </button>
                           <button id="chat-vault-discard-btn"
@@ -580,7 +580,7 @@ export default function ChatPage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-xs px-2.5 py-1 rounded-full inline-flex items-center gap-1 transition-colors"
-                                style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.25)" }}
+                                style={{ background: "rgba(59,130,246,0.12)", color: "var(--accent)", border: "1px solid rgba(59,130,246,0.25)" }}
                                 title={s.url}
                               >
                                 🌐 {s.document_name && s.document_name.length > 20 ? s.document_name.slice(0, 18) + "…" : (s.document_name || "Web")}
@@ -617,7 +617,7 @@ export default function ChatPage() {
                           style={{
                             background: "rgba(59,130,246,0.10)",
                             border: "1px solid rgba(59,130,246,0.25)",
-                            color: "#60a5fa",
+                            color: "var(--accent)",
                           }}
                         >
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -636,7 +636,7 @@ export default function ChatPage() {
               {streamingContent !== null && (
                 <div className="flex justify-start animate-slide-up">
                   <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mr-3 mt-1"
-                    style={{ background: "var(--accent)", boxShadow: "0 4px 0 #8a000e" }}>
+                    style={{ background: "var(--accent)", boxShadow: "0 4px 0 var(--status-error)" }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
                     </svg>
@@ -662,11 +662,11 @@ export default function ChatPage() {
             <div className="px-3 md:px-6 py-3 md:py-4" style={{ borderTop: "1px solid var(--border)" }}>
               {attachedFile && (
                 <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl text-sm"
-                  style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.25)" }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  style={{ background: "rgba(225, 85, 59,0.1)", border: "1px solid rgba(225, 85, 59,0.25)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                   </svg>
-                  <span style={{ color: "#818cf8" }} className="flex-1 truncate">{attachedFile.name}</span>
+                  <span style={{ color: "var(--accent)" }} className="flex-1 truncate">{attachedFile.name}</span>
                   <button onClick={discardAttachment} style={{ color: "var(--text-muted)" }}>✕</button>
                 </div>
               )}
@@ -676,7 +676,7 @@ export default function ChatPage() {
                   onClick={() => fileInputRef.current?.click()}
                   className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-colors"
                   style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#818cf8"; (e.currentTarget as HTMLElement).style.borderColor = "rgba(99,102,241,0.4)"; }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--accent)"; (e.currentTarget as HTMLElement).style.borderColor = "rgba(225, 85, 59,0.4)"; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; }}
                   title="Attach file">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

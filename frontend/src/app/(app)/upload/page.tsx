@@ -70,8 +70,8 @@ export default function UploadPage() {
       <div
         className={`relative rounded-2xl transition-all duration-200 cursor-pointer ${dragging ? "scale-[1.01]" : ""}`}
         style={{
-          background: dragging ? "rgba(99,102,241,0.1)" : "var(--surface-1)",
-          border: `2px dashed ${dragging || file ? "#6366f1" : "var(--border)"}`,
+          background: dragging ? "rgba(225, 85, 59,0.1)" : "var(--surface-1)",
+          border: `2px dashed ${dragging || file ? "var(--accent)" : "var(--border)"}`,
           padding: "3rem 2rem",
         }}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
@@ -85,8 +85,8 @@ export default function UploadPage() {
           {file ? (
             <>
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                style={{ background: "rgba(225, 85, 59,0.15)", border: "1px solid rgba(225, 85, 59,0.3)" }}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                 </svg>
               </div>
@@ -100,7 +100,7 @@ export default function UploadPage() {
             <>
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
                 style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
                 </svg>
               </div>
@@ -112,7 +112,7 @@ export default function UploadPage() {
       </div>
 
       {error && (
-        <div className="mt-4 p-3 rounded-xl text-sm" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}>
+        <div className="mt-4 p-3 rounded-xl text-sm" style={{ background: "rgba(154, 66, 58,0.1)", border: "1px solid rgba(154, 66, 58,0.3)", color: "var(--status-error)" }}>
           {error}
         </div>
       )}
@@ -131,7 +131,7 @@ export default function UploadPage() {
       )}
 
       {status === "done" && (
-        <div className="mt-4 p-3 rounded-xl text-sm text-center" style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80" }}>
+        <div className="mt-4 p-3 rounded-xl text-sm text-center" style={{ background: "rgba(107, 112, 92,0.1)", border: "1px solid rgba(107, 112, 92,0.3)", color: "var(--status-success)" }}>
           Upload complete! Processing started — redirecting to dashboard…
         </div>
       )}

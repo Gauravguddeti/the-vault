@@ -83,14 +83,14 @@ export default function ConfirmUploadModal({
         </h2>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg text-sm">
+          <div className="mb-4 p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)]/20 text-[var(--status-error)] rounded-lg text-sm">
             {error}
           </div>
         )}
 
         {(status === "uploading" || status === "analyzing" || status === "confirming") && (
           <div className="flex flex-col items-center justify-center py-8 space-y-4">
-            <div className="w-12 h-12 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+            <div className="w-12 h-12 border-4 border-[var(--accent)]/30 border-t-[var(--accent)] rounded-full animate-spin" />
             <p className="text-[var(--text-secondary)] text-sm">
               {status === "uploading" ? `Uploading... ${progress}%` :
                status === "analyzing" ? "Extracting text and identifying fields..." : 
@@ -108,9 +108,9 @@ export default function ConfirmUploadModal({
                 }}
                 className="mt-2 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95"
                 style={{ 
-                  background: "rgba(99,102,241,0.15)", 
-                  border: "1px solid rgba(99,102,241,0.3)", 
-                  color: "#818cf8",
+                  background: "rgba(225, 85, 59,0.15)", 
+                  border: "1px solid rgba(225, 85, 59,0.3)", 
+                  color: "var(--accent)",
                 }}>
                 Do it yourself! →
               </button>
@@ -122,15 +122,15 @@ export default function ConfirmUploadModal({
           <div className="flex flex-col gap-4 overflow-y-auto pr-2">
             {duplicateWarning && (
               <div className="px-3 py-2 rounded-lg text-sm"
-                style={{ background: "rgba(234,179,8,0.1)", border: "1px solid rgba(234,179,8,0.3)", color: "#facc15" }}>
+                style={{ background: "rgba(178, 138, 68,0.1)", border: "1px solid rgba(178, 138, 68,0.3)", color: "var(--status-warning)" }}>
                 ⚠️ {duplicateWarning}
               </div>
             )}
 
             {/* Auto-confirm shortcut */}
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
-              style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              style={{ background: "rgba(225, 85, 59,0.08)", border: "1px solid rgba(225, 85, 59,0.2)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
               </svg>
               <p className="text-xs flex-1" style={{ color: "var(--text-secondary)" }}>
@@ -140,7 +140,7 @@ export default function ConfirmUploadModal({
                 id="auto-confirm-btn"
                 onClick={handleAutoConfirm}
                 className="flex-shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg transition-all active:scale-95"
-                style={{ background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.4)", color: "#818cf8" }}>
+                style={{ background: "rgba(225, 85, 59,0.2)", border: "1px solid rgba(225, 85, 59,0.4)", color: "var(--accent)" }}>
                 Do it yourself!
               </button>
             </div>
@@ -209,7 +209,7 @@ export default function ConfirmUploadModal({
               </button>
               <button 
                 onClick={() => onConfirm({ ...fields, amount: fields.amount ? parseFloat(fields.amount) : null })}
-                className="px-4 py-2 rounded-lg text-sm bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] text-white hover:bg-[var(--accent)] transition-colors"
               >
                 Confirm & Add to Vault
               </button>
@@ -219,7 +219,7 @@ export default function ConfirmUploadModal({
 
         {status === "ready" && (
           <div className="flex flex-col items-center justify-center py-6 space-y-4">
-            <div className="w-16 h-16 bg-green-500/20 text-green-500 rounded-full flex items-center justify-center">
+            <div className="w-16 h-16 bg-[var(--status-success)]/20 text-[var(--status-success)] rounded-full flex items-center justify-center">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
