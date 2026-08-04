@@ -30,8 +30,9 @@ All uploads — whether via the upload page, in-chat attachment, mobile share-sh
 
 ```
 Upload → OCR (Mistral / tesseract fallback)
-       → Structured Field Extraction (amount, date, vendor, category)
-       → Chunking + Embedding → pgvector
+       → Structured Field Extraction (amount, date, vendor, category, itemized rows)
+       → OCR Confidence Scoring (flagging fields < 70% confidence)
+       → Section-aware Chunking + Embedding → pgvector
        → Status: ready
 ```
 
@@ -47,11 +48,14 @@ A LangGraph agent with four query modes, classified per-message by a fast LLM ca
 | `chat` | Conversational reply, no retrieval |
 | `lookup` | Semantic search (pgvector cosine similarity) → grounded answer with citations |
 | `aggregation` | Intent parsed to JSON (category + date range) → **SQL math** → LLM describes result. No LLM arithmetic. |
-| `out_of_scope` | Graceful redirect to what the Vault can help with |
+| `web_search` | Tavily fallback for general knowledge queries, clearly labeled for the user |
 
-- **Prompt injection defense**: all document content is wrapped in `<document_content>` XML tags with explicit system instructions to treat it as untrusted data.
-- **Zero-chunk guard**: if no chunks are retrieved, the agent falls back to the document index (filenames, upload dates, categories) rather than hallucinating.
-- **Conversation memory**: per-session history stored in Postgres; old sessions summarised.
+- **Hybrid Search**: `lookup` queries use Reciprocal Rank Fusion (RRF) combining vector similarity (`pgvector`) with keyword-based Full-Text Search (`to_tsvector`) for robust retrieval.
+- **OCR Confirmation Gate**: If you query a document that has low-confidence OCR fields (e.g., blurry amounts or garbled medication names), the LangGraph automatically halts and asks you to confirm or correct the value before answering.
+- **Thinking Pre-step**: For complex queries, a fast `<thinking>` step runs in the background to reason through the retrieved context before streaming the final answer to the user (visible via a "Show reasoning" toggle).
+- **Dynamic Suggestions**: Chat interface automatically suggests contextual prompt chips based on the actual categories of documents you've uploaded.
+- **RxNorm Drug Resolution**: Garbled medication names from prescriptions are automatically resolved against the NIH RxNorm approximate-match API.
+- **Conversation memory**: per-session history stored in Postgres; old sessions are automatically compressed into summaries.
 
 ### Upload Entry Points
 - **Upload page** — standard file picker
