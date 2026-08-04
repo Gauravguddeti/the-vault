@@ -6,7 +6,7 @@
 
 Build **"The Vault"** — a self-hostable, privacy-first alternative to Google Drive for personal documents (receipts, medical records, warranties, tax documents). Every uploaded file is OCR'd, chunked, embedded, and made queryable in natural language. A user can ask "How much did I spend on laptop repairs last year?" and the system aggregates the answer across multiple invoices, with citations back to source documents — never a hallucinated number.
 
-This is a final-year project. The core research contribution is: **privacy-preserving semantic search in a multi-tenant serverless architecture** — guaranteeing User A's vector search can never retrieve User B's documents, and measuring the performance cost of the isolation mechanism chosen.
+The core architecture uses: **privacy-preserving semantic search in a multi-tenant serverless architecture** — guaranteeing User A's vector search can never retrieve User B's documents, and measuring the performance cost of the isolation mechanism chosen.
 
 ---
 
@@ -21,7 +21,7 @@ This is a final-year project. The core research contribution is: **privacy-prese
 | LLM | **Groq API** (Llama 3.3 70B or similar — confirm current best Groq-hosted model) | Used for the RAG answer-generation layer |
 | OCR | Advanced OCR parser — evaluate and pick one: Groq/Llama vision model, Mistral OCR API (has a free tier), or Tesseract.js as a free fallback | Must handle scanned receipts/invoices reliably, not just clean text |
 | Vector store | `pgvector` inside Neon | No separate vector DB — keeps it one system to secure |
-| Multi-tenancy security | Postgres **Row-Level Security (RLS)** scoped by `user_id` on every table including the vectors table | This is the thesis's core mechanism — must be testable/provable |
+| Multi-tenancy security | Postgres **Row-Level Security (RLS)** scoped by `user_id` on every table including the vectors table | This is the core mechanism — must be testable/provable |
 | Orchestration | LangGraph agent layer on top of retrieval, for multi-step/aggregation queries | Handles queries that need math across multiple retrieved chunks, not just single-hit lookup |
 
 Non-negotiables from the user:
@@ -43,11 +43,11 @@ The agent must implement these specifically, not just "use RAG":
 
 ---
 
-## 4. Multi-Tenant Security (thesis core)
+## 4. Multi-Tenant Security (core feature)
 
 - Every table (`documents`, `chunks`, `embeddings`, `extracted_fields`) must have a `user_id` column and RLS policies enforcing `user_id = current_setting('app.current_user_id')` or equivalent.
 - The agent must write a test suite that specifically tries to leak User B's data into User A's query results, and document the result.
-- Benchmark and document the **latency overhead** of RLS-enforced vector queries vs. an unsecured baseline — this becomes a chapter in the thesis, so numbers must be real, not estimated.
+- Benchmark and document the **latency overhead** of RLS-enforced vector queries vs. an unsecured baseline — this becomes a core benchmark, so numbers must be real, not estimated.
 
 ---
 
