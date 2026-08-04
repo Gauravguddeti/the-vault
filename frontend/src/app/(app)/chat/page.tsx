@@ -263,14 +263,18 @@ export default function ChatPage() {
       setMessages(prev => [...prev, assistantMsg]);
       setStreamingContent(null);
 
+      // Optimistically update the sidebar session (message count + timestamp)
       mutateSessions(
         sessions.map(s =>
           s.id === targetId
             ? { ...s, message_count: s.message_count + 2, updated_at: new Date().toISOString() }
             : s
         ),
-        false
+        false // don't revalidate yet
       );
+      // After a brief delay, revalidate from DB to get accurate title/count
+      setTimeout(() => mutateSessions(), 1500);
+
     } catch (err: any) {
       if (err?.name === "AbortError") return; // intentional cancel
       setStreamingContent(null);

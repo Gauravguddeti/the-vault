@@ -50,15 +50,19 @@ async def create_session(
 
 @router.get("", response_model=List[SessionOut])
 async def list_sessions(
+    user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_with_rls),
 ):
+    """Defense-in-depth: RLS + explicit WHERE user_id."""
     rows = await conn.fetch(
         """
         SELECT id::text, title, message_count, created_at::text, updated_at::text
         FROM conversation_sessions
+        WHERE user_id = $1::uuid
         ORDER BY updated_at DESC
         LIMIT 50
-        """
+        """,
+        user["user_id"],
     )
     return [dict(r) for r in rows]
 

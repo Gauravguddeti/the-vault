@@ -88,16 +88,31 @@ async def get_db_with_rls(
     FastAPI dependency that:
     1. Gets an authenticated user (via get_current_user)
     2. Acquires a DB connection from the pool
-    3. Sets the Postgres RLS variable so all queries are user-scoped
-    4. Yields the connection
-    5. Releases it after the request completes
+    3. Starts an explicit transaction (REQUIRED for SET LOCAL to work)
+    4. Sets the Postgres RLS variable so all queries are user-scoped
+    5. Yields the connection to the route handler
+    6. Commits the transaction and releases the connection
 
-    Usage in a router:
-        @router.get("/documents")
-        async def list_docs(conn=Depends(get_db_with_rls), user=Depends(get_current_user)):
-            ...
+    CRITICAL: SET LOCAL only works inside a transaction. Without BEGIN,
+    the session variable is not set and RLS sees no user_id, which causes
+    cross-account data leaks on pooled connections. This is the root cause
+    of the documented cross-account document leak.
     """
+    user_id = user.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing user identity",
+        )
+
     pool = await get_pool()
-    async with pool.acquire() as conn:
-        await set_rls_user(conn, user["user_id"])
-        yield conn
+    conn = await pool.acquire()
+    try:
+        # START TRANSACTION — SET LOCAL is scoped to this transaction.
+        # When we COMMIT below, the variable is reset, preventing leakage
+        # to the next request that reuses this pooled connection.
+        async with conn.transaction():
+            await set_rls_user(conn, user_id)
+            yield conn
+    finally:
+        await pool.release(conn)

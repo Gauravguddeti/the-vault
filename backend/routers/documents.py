@@ -194,15 +194,21 @@ async def confirm_document(
 
 @router.get("", response_model=List[DocumentOut])
 async def list_documents(
+    user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_with_rls),
 ):
+    """List all documents for the authenticated user.
+    Defense-in-depth: both RLS (session variable) AND explicit WHERE user_id filter.
+    """
     rows = await conn.fetch(
         """
         SELECT id::text, filename, original_name, status, mime_type, file_size,
                created_at::text, updated_at::text
         FROM documents
+        WHERE user_id = $1::uuid
         ORDER BY created_at DESC
-        """
+        """,
+        user["user_id"],
     )
     return [dict(r) for r in rows]
 
@@ -211,22 +217,23 @@ async def list_documents(
 
 @router.get("/suggestions")
 async def get_suggestions(
+    user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_with_rls),
 ):
     """
     Returns 3 prompt chip suggestions tailored to the user's actual vault contents.
-    Categories: resume → resume-flavored; receipt/invoice → spend-flavored;
-    mixed → one of each; empty → upload-oriented.
+    Defense-in-depth: explicit WHERE user_id filter in addition to RLS.
     """
     rows = await conn.fetch(
         """
         SELECT d.original_name, ef.category, ef.vendor
         FROM documents d
         LEFT JOIN extracted_fields ef ON ef.document_id = d.id
-        WHERE d.status = 'ready'
+        WHERE d.status = 'ready' AND d.user_id = $1::uuid
         ORDER BY d.created_at DESC
         LIMIT 20
-        """
+        """,
+        user["user_id"],
     )
 
     if not rows:

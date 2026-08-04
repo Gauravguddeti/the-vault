@@ -316,15 +316,80 @@ async def retrieve_node(state: VaultState) -> VaultState:
     conn = state["conn"]
     question = state["question"]
 
-    # Augment with recent history for better recall
+    # ── Follow-up query rewriting ────────────────────────────────────────
+    # If the question is vague (short + contains follow-up pronouns like
+    # "it", "that", "this", "more"), rewrite it using recent history so
+    # the retrieval embedding actually points at the right content.
     context_question = question
     history = state.get("history", [])
-    if history:
-        last_user_msgs = [m for m in history if m["role"] == "user"][-2:]
-        if last_user_msgs:
-            last = last_user_msgs[-1].get("content", "")
-            if last and len(last) < 200:
-                context_question = f"{last} {question}"
+
+    # Detect vague follow-up: short message + reference words
+    VAGUE_WORDS = {"it", "that", "this", "those", "these", "more", "them",
+                   "which", "what about", "tell me more", "elaborate", "expand",
+                   "continue", "and", "also"}
+
+    def _is_vague_followup(q: str) -> bool:
+        q_lower = q.lower().strip()
+        words = set(q_lower.split())
+        has_vague = bool(words & VAGUE_WORDS) or any(p in q_lower for p in ["tell me more", "what about", "more about"])
+        is_short = len(q_lower.split()) <= 8
+        return has_vague and is_short and bool(history)
+
+    if _is_vague_followup(question):
+        # Build a rewritten query from recent history
+        recent_context = []
+        for msg in history[-4:]:
+            if msg.get("role") == "assistant" and msg.get("content"):
+                # Take the first 150 chars of the last assistant turn as topic anchor
+                recent_context.append(msg["content"][:150])
+            elif msg.get("role") == "user" and msg.get("content"):
+                recent_context.append(msg["content"][:100])
+
+        if recent_context:
+            # Fast rewrite using small model
+            try:
+                from groq import AsyncGroq
+                rw_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+                rw_response = await rw_client.chat.completions.create(
+                    model=settings.GROQ_MODEL_FAST,
+                    messages=[
+                        {"role": "system", "content":
+                            "Rewrite the user's follow-up question into a self-contained, "
+                            "specific question using the conversation context. "
+                            "Output ONLY the rewritten question, nothing else. "
+                            "Keep it under 20 words."},
+                        {"role": "user", "content":
+                            f"Conversation context:\n{chr(10).join(recent_context[-3:])}\n\n"
+                            f"Follow-up question: {question}\n\n"
+                            f"Rewritten question:"},
+                    ],
+                    temperature=0.1,
+                    max_tokens=50,
+                )
+                rewritten = rw_response.choices[0].message.content.strip().strip('"\'')
+                if rewritten and len(rewritten) > 5:
+                    context_question = rewritten
+                    logger.info("[RETRIEVAL] Follow-up rewritten: %r → %r", question, context_question)
+            except Exception as e:
+                logger.warning(f"Follow-up rewrite failed, using original: {e}")
+                # Fallback: prefix last assistant turn as context
+                if history:
+                    last_assistant = next(
+                        (m["content"][:100] for m in reversed(history) if m.get("role") == "assistant"), ""
+                    )
+                    if last_assistant:
+                        context_question = f"{last_assistant} {question}"
+    else:
+        # Standard augmentation: prepend last user message for continuity
+        if history:
+            last_user_msgs = [m for m in history if m["role"] == "user"][-2:]
+            if last_user_msgs:
+                last = last_user_msgs[-1].get("content", "")
+                if last and len(last) < 200:
+                    context_question = f"{last} {question}"
+
+    logger.debug("[RETRIEVAL] Effective query for embedding: %r", context_question)
+
 
     # Count distinct ready documents — determines retrieval aggressiveness
     try:
