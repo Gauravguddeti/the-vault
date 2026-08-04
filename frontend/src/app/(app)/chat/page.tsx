@@ -19,6 +19,7 @@ type Message = {
   sources?: any[];
   query_type?: string;
   thinking?: string;
+  is_general_knowledge?: boolean;
   created_at: string;
   attachmentName?: string;
 };
@@ -226,6 +227,7 @@ export default function ChatPage() {
       let finalSources: any[] = [];
       let finalQueryType = "lookup";
       let finalThinking = "";
+      let finalIsGeneralKnowledge = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -242,6 +244,7 @@ export default function ChatPage() {
               finalSources = data.sources || [];
               finalQueryType = data.query_type || "lookup";
               finalThinking = data.thinking || "";
+              finalIsGeneralKnowledge = data.is_general_knowledge || false;
             } else if (data.token) {
               accumulated += data.token;
               setStreamingContent(accumulated);
@@ -258,6 +261,7 @@ export default function ChatPage() {
         sources: finalSources,
         query_type: finalQueryType,
         thinking: finalThinking,
+        is_general_knowledge: finalIsGeneralKnowledge,
         created_at: new Date().toISOString(),
       };
       setMessages(prev => [...prev, assistantMsg]);
@@ -609,6 +613,26 @@ export default function ChatPage() {
                             )}
                           </div>
                         ))}
+                      </div>
+                    )}
+
+                    {/* General knowledge label — shown when answer came from web, not vault */}
+                    {msg.role === "assistant" && msg.is_general_knowledge && (
+                      <div className="flex items-center gap-1.5 mt-2">
+                        <span
+                          className="text-xs px-2.5 py-1 rounded-full inline-flex items-center gap-1.5"
+                          style={{
+                            background: "rgba(59,130,246,0.10)",
+                            border: "1px solid rgba(59,130,246,0.25)",
+                            color: "#60a5fa",
+                          }}
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                          </svg>
+                          General knowledge — not from your Vault
+                        </span>
                       </div>
                     )}
                   </div>

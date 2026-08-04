@@ -55,9 +55,15 @@ async def run_query(
         "query_type": "lookup",
         "chunks": [],
         "sql_result": None,
+        "web_results": [],
         "answer": "",
         "sources": [],
+        "thinking": "",
         "context_truncated": False,
+        "user_memory": "",
+        "is_general_knowledge": False,
+        "web_category": None,
+        "rxnorm_note": "",
     })
 
     await conn.execute(
@@ -196,6 +202,7 @@ async def run_query_stream(
             "query_type": context["query_type"],
             "thinking": context.get("thinking", ""),
             "context_truncated": context.get("context_truncated", False),
+            "is_general_knowledge": context.get("is_general_knowledge", False),
         })
         yield f"data: {done_payload}\n\n"
 
