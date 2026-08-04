@@ -207,6 +207,87 @@ async def list_documents(
     return [dict(r) for r in rows]
 
 
+# ── Suggestions ────────────────────────────────────────────────────────
+
+@router.get("/suggestions")
+async def get_suggestions(
+    conn: asyncpg.Connection = Depends(get_db_with_rls),
+):
+    """
+    Returns 3 prompt chip suggestions tailored to the user's actual vault contents.
+    Categories: resume → resume-flavored; receipt/invoice → spend-flavored;
+    mixed → one of each; empty → upload-oriented.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT d.original_name, ef.category, ef.vendor
+        FROM documents d
+        LEFT JOIN extracted_fields ef ON ef.document_id = d.id
+        WHERE d.status = 'ready'
+        ORDER BY d.created_at DESC
+        LIMIT 20
+        """
+    )
+
+    if not rows:
+        return {
+            "suggestions": [
+                "Upload a receipt or bill to get started",
+                "Drop a PDF and ask questions about it",
+                "Add a document to your Vault",
+            ]
+        }
+
+    # Tally categories
+    category_counts: dict[str, int] = {}
+    names = []
+    for r in rows:
+        cat = (r["category"] or "other").lower()
+        category_counts[cat] = category_counts.get(cat, 0) + 1
+        names.append(r["original_name"])
+
+    total = len(rows)
+    resume_cats = {"resume", "cv", "other"}
+    spend_cats = {"receipt", "invoice", "bill", "medical", "food", "transport",
+                  "utilities", "electronics", "clothing", "repairs", "insurance",
+                  "taxes", "rent"}
+
+    resume_count = sum(v for k, v in category_counts.items() if k in resume_cats)
+    spend_count = sum(v for k, v in category_counts.items() if k in spend_cats)
+
+    first_name = names[0] if names else "your document"
+    second_name = names[1] if len(names) > 1 else None
+
+    resume_suggestions = [
+        "Summarize my work experience",
+        "What's my most recent job or role?",
+        "What skills are listed in my resume?",
+        f"Give me an overview of {first_name}",
+        "What's my educational background?",
+    ]
+    spend_suggestions = [
+        "How much did I spend last month?",
+        f"What's the total amount in {first_name}?",
+        "Which category did I spend the most on?",
+        "List my most recent receipts",
+        "What was my biggest single expense?",
+    ]
+    mixed_suggestions = [
+        f"Summarize {first_name}",
+        "How much have I spent in total?",
+        f"What's in {second_name}?" if second_name else "List all my documents",
+    ]
+
+    if resume_count / total >= 0.7:
+        picks = resume_suggestions[:3]
+    elif spend_count / total >= 0.7:
+        picks = spend_suggestions[:3]
+    else:
+        picks = mixed_suggestions[:3]
+
+    return {"suggestions": picks}
+
+
 # ── Detail ─────────────────────────────────────────────────────────────
 
 @router.get("/{doc_id}")

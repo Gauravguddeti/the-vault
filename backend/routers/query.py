@@ -194,6 +194,7 @@ async def run_query_stream(
             "done": True,
             "sources": context["sources"],
             "query_type": context["query_type"],
+            "thinking": context.get("thinking", ""),
             "context_truncated": context.get("context_truncated", False),
         })
         yield f"data: {done_payload}\n\n"

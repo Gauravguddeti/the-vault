@@ -18,12 +18,48 @@ type Message = {
   content: string;
   sources?: any[];
   query_type?: string;
+  thinking?: string;
   created_at: string;
   attachmentName?: string;
 };
 
 const ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/tiff", "image/webp", "image/gif"];
 const MAX_MB = 25;
+
+/** Collapsible reasoning block shown below assistant messages. */
+function ThinkingBlock({ thinking }: { thinking: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="text-xs flex items-center gap-1 transition-colors select-none"
+        style={{ color: "var(--text-muted)" }}
+      >
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="currentColor"
+          style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 150ms ease" }}
+        >
+          <polygon points="2,1 8,5 2,9" />
+        </svg>
+        {open ? "Hide reasoning" : "Show reasoning"}
+      </button>
+      {open && (
+        <div
+          className="mt-1.5 text-xs px-3 py-2.5 rounded-xl leading-relaxed italic"
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid var(--border)",
+            color: "var(--text-muted)",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {thinking}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ChatPage() {
   const { data: session } = useSession();
@@ -189,6 +225,7 @@ export default function ChatPage() {
       let accumulated = "";
       let finalSources: any[] = [];
       let finalQueryType = "lookup";
+      let finalThinking = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -204,6 +241,7 @@ export default function ChatPage() {
             if (data.done) {
               finalSources = data.sources || [];
               finalQueryType = data.query_type || "lookup";
+              finalThinking = data.thinking || "";
             } else if (data.token) {
               accumulated += data.token;
               setStreamingContent(accumulated);
@@ -219,6 +257,7 @@ export default function ChatPage() {
         content: accumulated || "Sorry, I couldn't generate a response.",
         sources: finalSources,
         query_type: finalQueryType,
+        thinking: finalThinking,
         created_at: new Date().toISOString(),
       };
       setMessages(prev => [...prev, assistantMsg]);
@@ -317,26 +356,18 @@ export default function ChatPage() {
     if (file && activeId) handleFileSelect(file);
   }, [activeId]);
 
-  // Fetch documents for dynamic prompt chips
-  const { data: docs = [] } = useSWR<any[]>(
-    token ? ["/api/documents", token] : null,
-    ([path, tok]: [string, string]) => swrFetch<any[]>(path, tok),
-    { keepPreviousData: true }
+  // Fetch dynamic prompt suggestions from backend (auto-refreshes after doc changes)
+  const { data: suggestionsData } = useSWR<{ suggestions: string[] }>(
+    token ? ["/api/documents/suggestions", token] : null,
+    ([path, tok]: [string, string]) => swrFetch<{ suggestions: string[] }>(path, tok),
+    { keepPreviousData: true, revalidateOnFocus: false }
   );
 
-  const defaultPrompts = [
-    "How much did I spend on electronics?",
-    "What did I buy from Kamal Novelties?",
-    "Show me my most recent receipt",
+  const dynamicPrompts = suggestionsData?.suggestions ?? [
+    "Upload a receipt or bill to get started",
+    "Drop a PDF and ask questions about it",
+    "Add a document to your Vault",
   ];
-
-  const dynamicPrompts = docs.length > 0
-    ? [
-        `Summarize the contents of ${docs[0]?.original_name}`,
-        docs[1] ? `What is the total amount in ${docs[1].original_name}?` : "How much did I spend on electronics?",
-        docs[2] ? `Extract the key details from ${docs[2].original_name}` : "Show me my most recent receipt",
-      ]
-    : defaultPrompts;
 
   return (
     <div className="flex h-full w-full">
@@ -530,6 +561,11 @@ export default function ChatPage() {
                           </button>
                         </div>
                       )}
+
+                    {/* Thinking block — collapsible "Show reasoning" toggle */}
+                    {msg.role === "assistant" && msg.thinking && (
+                      <ThinkingBlock thinking={msg.thinking} />
+                    )}
 
                     {/* Source citations with hover detail */}
                     {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
