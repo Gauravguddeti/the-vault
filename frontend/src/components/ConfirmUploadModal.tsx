@@ -11,6 +11,8 @@ interface ConfirmUploadModalProps {
   onConfirm: (fields: any) => void;
   onAutoConfirm: () => void;
   onCancel: () => void;
+  /** Closes the modal WITHOUT resetting upload state. Used by "Do it yourself!" during analysis. */
+  onDismiss: () => void;
   isOpen: boolean;
 }
 
@@ -23,6 +25,7 @@ export default function ConfirmUploadModal({
   onConfirm,
   onAutoConfirm,
   onCancel,
+  onDismiss,
   isOpen,
 }: ConfirmUploadModalProps) {
   const [fields, setFields] = useState({
@@ -97,8 +100,8 @@ export default function ConfirmUploadModal({
             {(status === "analyzing") && (
               <button
                 onClick={() => {
-                  onAutoConfirm();  // tell backend to auto-confirm when ready
-                  onCancel();       // immediately dismiss modal — don't block the UI
+                  onAutoConfirm();  // set autoConfirmRef = true so hook auto-submits when ready
+                  onDismiss();      // hide modal only — do NOT reset ingest state
                 }}
                 className="mt-2 text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95"
                 style={{ 

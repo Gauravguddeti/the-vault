@@ -524,6 +524,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         duplicateWarning={ingest.duplicateWarning}
         onConfirm={ingest.confirmUpload}
         onAutoConfirm={ingest.triggerAutoConfirm}
+        onDismiss={() => setModalOpen(false)}
         onCancel={() => {
           setModalOpen(false);
           ingest.reset();
