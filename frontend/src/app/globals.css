@@ -3,17 +3,17 @@
 @import "tailwindcss";
 
 :root {
-  --surface-0: #FDFBD4;
-  --surface-1: #FDFBD4;
-  --surface-2: #F8F3B9;
-  --surface-3: #F0EBB3;
-  --border: #8D5A2B;
-  --border-hover: #825E34;
+  --surface-0: #1A1512;
+  --surface-1: #241E1A;
+  --surface-2: #825E34;
+  --surface-3: #8D5A2B;
+  --border: #825E34;
+  --border-hover: #8D5A2B;
   --accent: #D47E30;
-  --accent-light: #E89E5A;
-  --text-primary: #825E34;
-  --text-secondary: #8D5A2B;
-  --text-muted: #B8906B;
+  --accent-light: #E0954F;
+  --text-primary: #FDFBD4;
+  --text-secondary: #DED692;
+  --text-muted: #8D5A2B;
 
   /* Motion tokens — keep in sync with src/lib/motion.ts */
   --duration-fast: 150ms;
@@ -89,7 +89,7 @@ body {
 /* ── Buttons ─────────────────────────────────────────────────────────── */
 .btn-primary {
   background: var(--accent);
-  color: #FDFBD4;
+  color: #1A1512;
   border: none;
   border-radius: 6px;
   padding: 0.625rem 1.25rem;
@@ -136,8 +136,8 @@ body {
 
 .btn-ghost:hover {
   border-color: var(--border-hover);
-  color: #FDFBD4;
-  background: var(--text-primary);
+  color: var(--text-primary);
+  background: var(--surface-2);
 }
 
 /* Tactile press for any button/interactive element */
@@ -169,10 +169,10 @@ body {
 
 /* ── Status badges ───────────────────────────────────────────────────── */
 .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; transition: background var(--duration-base) var(--ease-in-out), color var(--duration-base) var(--ease-in-out); }
-.badge-pending    { background: rgba(212, 126, 48, 0.15); color: #B36821; border: 1px solid rgba(212, 126, 48, 0.3); }
-.badge-processing { background: rgba(141, 90, 43, 0.15); color: #8D5A2B; border: 1px solid rgba(141, 90, 43, 0.3); }
-.badge-ready      { background: rgba(130, 94, 52, 0.15); color: #825E34; border: 1px solid rgba(130, 94, 52, 0.3); }
-.badge-failed     { background: rgba(220, 38, 38, 0.15); color: #dc2626; border: 1px solid rgba(220, 38, 38, 0.3); }
+.badge-pending    { background: rgba(212, 126, 48, 0.15); color: #FDFBD4; border: 1px solid rgba(212, 126, 48, 0.3); }
+.badge-processing { background: rgba(141, 90, 43, 0.15); color: #FDFBD4; border: 1px solid rgba(141, 90, 43, 0.3); }
+.badge-ready      { background: rgba(130, 94, 52, 0.15); color: #FDFBD4; border: 1px solid rgba(130, 94, 52, 0.3); }
+.badge-failed     { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.3); }
 .badge-awaiting   { background: rgba(212, 126, 48, 0.15); color: #D47E30; border: 1px solid rgba(212, 126, 48, 0.3); }
 
 /* ── Spinner ─────────────────────────────────────────────────────────── */
@@ -290,9 +290,9 @@ body {
   text-overflow: ellipsis;
 }
 
-.toast-success { background: rgba(130, 94, 52, 0.18); border: 1px solid rgba(130, 94, 52, 0.35); color: #825E34; }
-.toast-error   { background: rgba(220, 38, 38, 0.18); border: 1px solid rgba(220, 38, 38, 0.35); color: #dc2626; }
-.toast-info    { background: rgba(141, 90, 43, 0.18); border: 1px solid rgba(141, 90, 43, 0.35); color: #8D5A2B; }
+.toast-success { background: rgba(130, 94, 52, 0.18); border: 1px solid rgba(130, 94, 52, 0.35); color: #FDFBD4; }
+.toast-error   { background: rgba(220, 38, 38, 0.18); border: 1px solid rgba(220, 38, 38, 0.35); color: #f87171; }
+.toast-info    { background: rgba(141, 90, 43, 0.18); border: 1px solid rgba(141, 90, 43, 0.35); color: #FDFBD4; }
 
 /* ── Mobile bottom sheet backdrop ───────────────────────────────────── */
 .bottom-sheet-backdrop {
