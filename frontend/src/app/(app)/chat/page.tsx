@@ -78,6 +78,7 @@ export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // Streaming state
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // SWR for sessions — shows cached list instantly on tab switch
@@ -172,9 +173,21 @@ export default function ChatPage() {
   }, [ingest.status]);
 
   async function loadMessages(sid: string) {
+    setLoadingMessages(true);
     setMessages([]);
-    const r = await api(`/api/conversations/${sid}/messages`);
-    if (r.ok) setMessages(await r.json());
+    try {
+      const r = await api(`/api/conversations/${sid}/messages`);
+      if (r.ok) {
+        const data = await r.json();
+        setMessages(data);
+      } else {
+        console.error("[loadMessages] HTTP", r.status);
+      }
+    } catch (err) {
+      console.error("[loadMessages] fetch failed", err);
+    } finally {
+      setLoadingMessages(false);
+    }
   }
 
   async function selectSession(sid: string) {
@@ -552,7 +565,38 @@ export default function ChatPage() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-6">
-              {messages.map((msg, i) => (
+              {loadingMessages ? (
+                /* Loading skeleton while fetching messages */
+                <div className="space-y-6 animate-fade-in">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className={`flex ${i % 2 === 0 ? "justify-start" : "justify-end"}`}
+                      style={{ animationDelay: `${i * 60}ms` }}>
+                      {i % 2 === 0 && (
+                        <div className="w-8 h-8 rounded-xl flex-shrink-0 mr-3 mt-1"
+                          style={{ background: "var(--surface-3)" }} />
+                      )}
+                      <div style={{
+                        width: `${[65, 45, 55][i]}%`,
+                        height: i % 2 === 0 ? 72 : 48,
+                        borderRadius: 16,
+                        background: "linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%)",
+                        backgroundSize: "400px 100%",
+                        animation: "shimmerSlide 1.6s infinite linear",
+                      }} />
+                    </div>
+                  ))}
+                </div>
+              ) : messages.length === 0 ? (
+                /* Empty — no messages in this session yet */
+                <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in" style={{ color: "var(--text-muted)" }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12, opacity: 0.5 }}>
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <p className="text-sm">No messages yet — type something below</p>
+                </div>
+              ) : (
+              messages.map((msg, i) => (
+
                 <div key={msg.id + i}
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} animate-slide-up`}
                   style={{ animationDelay: `${Math.min(i * 20, 100)}ms`, animationFillMode: "both" }}>
@@ -660,7 +704,7 @@ export default function ChatPage() {
                     )}
                   </div>
                 </div>
-              ))}
+              )))}
 
               {/* Streaming / thinking bubble */}
               {streamingContent !== null && (

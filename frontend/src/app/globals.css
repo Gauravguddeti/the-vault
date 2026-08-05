@@ -3,21 +3,30 @@
 @import "tailwindcss";
 
 :root {
-  --surface-0: #1A1512;
-  --surface-1: #241E1A;
-  --surface-2: #825E34;
-  --surface-3: #8D5A2B;
-  --border: #825E34;
-  --border-hover: #8D5A2B;
-  --accent: #E1553B;
-  --accent-light: #E87A65;
-  --status-error: #9A423A;
-  --status-success: #6B705C;
-  --status-warning: #B28A44;
-  --status-info: #4A6076;
-  --text-primary: #FDFBD4;
-  --text-secondary: #DED692;
-  --text-muted: #8D5A2B;
+  /* ── Surfaces (dark gray, not brown) ──────────────────────────────── */
+  --surface-0: #0E0F11;        /* Page background — near black */
+  --surface-1: #17191D;        /* Sidebar, panels */
+  --surface-2: #1F2228;        /* Cards, message bubbles, input fields */
+  --surface-3: #272B33;        /* Hover states, elevated elements */
+
+  /* ── Borders ─────────────────────────────────────────────────────── */
+  --border: #2E333D;           /* Subtle separator */
+  --border-hover: #404756;     /* Hover / focus border */
+
+  /* ── Accent — the ONLY interactive color ─────────────────────────── */
+  --accent: #E1553B;           /* Primary CTA, selected state, links */
+  --accent-light: #F07A63;     /* Lighter accent for hover */
+
+  /* ── Status colors ────────────────────────────────────────────────── */
+  --status-error: #CF4C3F;
+  --status-success: #4CAF72;
+  --status-warning: #D4922A;
+  --status-info: #4A90D9;
+
+  /* ── Text — high contrast ─────────────────────────────────────────── */
+  --text-primary: #F0F2F5;     /* Body text — off-white, easy on eyes */
+  --text-secondary: #B8BCC8;   /* Secondary labels, metadata */
+  --text-muted: #6B7280;       /* Placeholders, timestamps, hints */
 
   /* Motion tokens — keep in sync with src/lib/motion.ts */
   --duration-fast: 150ms;
